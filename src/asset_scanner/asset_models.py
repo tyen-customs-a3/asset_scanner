@@ -1,7 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Set, Optional
+from typing import Set, Optional, Dict, List
+from types import MappingProxyType
 
 @dataclass(frozen=True)
 class Asset:

@@ -6,8 +6,8 @@ from datetime import datetime
 import threading
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
-from .models import Asset, ScanResult
-from .scanner import AssetScanner
+from .asset_models import Asset, ScanResult
+from .asset_scanner import AssetScanner
 from .cache import AssetCacheManager
 import pickle
 

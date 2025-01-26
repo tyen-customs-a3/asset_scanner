@@ -1,9 +1,17 @@
-from typing import Dict, Set, Optional, Mapping
+from typing import Dict, Set, Optional, Mapping, List
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from pathlib import Path
 from datetime import datetime
-from .models import Asset
+from .asset_models import Asset
+from .class_models import ClassHierarchy
+
+@dataclass(frozen=True)
+class CodeAnalysis:
+    """Container for code analysis results"""
+    classes: Mapping[str, Dict]
+    references: Mapping[str, List[tuple]]
+    last_updated: datetime
 
 @dataclass(frozen=True)
 class AssetCache:
@@ -13,6 +21,8 @@ class AssetCache:
     categories: Mapping[str, frozenset[str]] = field(default_factory=dict)
     last_updated: datetime = field(default_factory=datetime.now)
     extension_index: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    code_analysis: Mapping[str, CodeAnalysis] = field(default_factory=dict)
+    class_hierarchies: Mapping[str, ClassHierarchy] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Convert mutable collections to immutable ones after initialization."""
@@ -20,9 +30,13 @@ class AssetCache:
         object.__setattr__(self, 'paths_lower', MappingProxyType(dict(self.paths_lower)))
         object.__setattr__(self, 'categories', MappingProxyType(dict(self.categories)))
         object.__setattr__(self, 'extension_index', MappingProxyType(dict(self.extension_index)))
+        object.__setattr__(self, 'code_analysis', MappingProxyType(dict(self.code_analysis)))
+        object.__setattr__(self, 'class_hierarchies', MappingProxyType(dict(self.class_hierarchies)))
 
     @classmethod
-    def create_bulk(cls, assets: Dict[str, Asset]) -> 'AssetCache':
+    def create_bulk(cls, assets: Dict[str, Asset], 
+                   code_analysis: Dict[str, CodeAnalysis] = None,
+                   hierarchies: Dict[str, ClassHierarchy] = None) -> 'AssetCache':
         """Create a new cache instance with bulk data."""
         # Group assets by category
         categories: Dict[str, Set[str]] = {}
@@ -45,6 +59,8 @@ class AssetCache:
             paths_lower={k.lower(): k for k in assets.keys()},
             categories={k: frozenset(v) for k, v in categories.items()},
             extension_index={k: frozenset(v) for k, v in extension_index.items()},
+            code_analysis=MappingProxyType(code_analysis or {}),
+            class_hierarchies=MappingProxyType(hierarchies or {}),
             last_updated=datetime.now()
         )
 
@@ -138,3 +154,23 @@ class AssetCacheManager:
     def get_sources(self) -> Set[str]:
         """Get all unique asset sources."""
         return set(self._cache.categories.keys()) if self._cache else set()
+
+    def add_class_hierarchy(self, hierarchy: ClassHierarchy) -> None:
+        """Add or update class hierarchy in cache"""
+        if not self._cache:
+            return
+            
+        hierarchies = dict(self._cache.class_hierarchies)
+        hierarchies[hierarchy.source] = hierarchy
+        
+        self._cache = AssetCache.create_bulk(
+            self._cache.assets,
+            self._cache.code_analysis,
+            hierarchies
+        )
+
+    def get_class_hierarchy(self, source: str) -> Optional[ClassHierarchy]:
+        """Get cached class hierarchy for a source"""
+        if not self._cache:
+            return None
+        return self._cache.class_hierarchies.get(source)

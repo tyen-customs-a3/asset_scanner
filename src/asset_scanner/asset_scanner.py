@@ -8,14 +8,18 @@ import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
-from .models import Asset, ScanResult
+from .asset_models import Asset, ScanResult
+from .class_models import ClassInfo, UnprocessedClasses
+from .class_scanner import ClassScanner
+import tempfile
+import shutil
 
 logger = logging.getLogger(__name__)
 
 class AssetScanner:
     """Asset scanner for game content"""
     
-    VALID_EXTENSIONS = {'.p3d', '.paa', '.sqf', '.pbo', '.wss', '.ogg', '.jpg', '.png'}
+    VALID_EXTENSIONS = {'.p3d', '.paa', '.sqf', '.pbo', '.wss', '.ogg', '.jpg', '.png', '.cpp', '.hpp'}
     
     def __init__(self, cache_dir: Path, pbo_timeout: int = 30):
         if not cache_dir.exists():
@@ -27,16 +31,27 @@ class AssetScanner:
         self._file_count = 0
         self._max_workers = max(1, (os.cpu_count() or 2) - 1)
         self.progress_callback = None  # Add this line
+        self._temp_dir = None
+        self.class_scanner = ClassScanner(self)
 
     def __del__(self):
         self.cleanup()
 
     def cleanup(self):
-        """Clean up thread pool resources"""
+        """Clean up thread pool and temporary resources"""
         with self._executor_lock:
             if self._executor:
                 self._executor.shutdown(wait=True, cancel_futures=True)
                 self._executor = None
+        if self._temp_dir:
+            shutil.rmtree(self._temp_dir, ignore_errors=True)
+            self._temp_dir = None
+
+    def _get_temp_dir(self) -> Path:
+        """Get or create temporary directory"""
+        if not self._temp_dir:
+            self._temp_dir = Path(tempfile.mkdtemp(prefix='asset_scanner_'))
+        return self._temp_dir
 
     def scan_directory(self, path: Path, patterns: Optional[List[Pattern]] = None, max_files: Optional[int] = None) -> ScanResult:
         """Scan directory for assets with proper cleanup"""
@@ -229,3 +244,39 @@ class AssetScanner:
             logger.error(f"PBO scanning error: {pbo_path} - {e}")
         
         return set()
+
+    def read_pbo_code(self, pbo_path: Path) -> Dict[str, str]:
+        """Extract and read code files from PBO"""
+        try:
+            temp_dir = self._get_temp_dir() / pbo_path.stem
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            # Extract only code files
+            result = subprocess.run(
+                ['extractpbo', '-F', '*.cpp,*.hpp,*.sqf', str(pbo_path), str(temp_dir)],
+                capture_output=True,
+                text=True,
+                timeout=self.pbo_timeout
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Failed to extract code from PBO: {pbo_path}")
+                return {}
+
+            code_files = {}
+            for ext in self.CODE_EXTENSIONS:
+                for file_path in temp_dir.rglob(f'*{ext}'):
+                    try:
+                        code_files[str(file_path.relative_to(temp_dir))] = file_path.read_text(encoding='utf-8')
+                    except Exception as e:
+                        logger.warning(f"Failed to read {file_path}: {e}")
+
+            return code_files
+
+        except Exception as e:
+            logger.error(f"Error reading PBO code: {pbo_path} - {e}")
+            return {}
+        finally:
+            # Clean up extracted files
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
