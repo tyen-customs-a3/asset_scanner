@@ -4,14 +4,7 @@ from types import MappingProxyType
 from pathlib import Path
 from datetime import datetime
 from .asset_models import Asset
-from .class_models import ClassHierarchy
-
-@dataclass(frozen=True)
-class CodeAnalysis:
-    """Container for code analysis results"""
-    classes: Mapping[str, Dict]
-    references: Mapping[str, List[tuple]]
-    last_updated: datetime
+from .class_models import UnprocessedClasses
 
 @dataclass(frozen=True)
 class AssetCache:
@@ -21,8 +14,6 @@ class AssetCache:
     categories: Mapping[str, frozenset[str]] = field(default_factory=dict)
     last_updated: datetime = field(default_factory=datetime.now)
     extension_index: Mapping[str, frozenset[str]] = field(default_factory=dict)
-    code_analysis: Mapping[str, CodeAnalysis] = field(default_factory=dict)
-    class_hierarchies: Mapping[str, ClassHierarchy] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Convert mutable collections to immutable ones after initialization."""
@@ -30,15 +21,31 @@ class AssetCache:
         object.__setattr__(self, 'paths_lower', MappingProxyType(dict(self.paths_lower)))
         object.__setattr__(self, 'categories', MappingProxyType(dict(self.categories)))
         object.__setattr__(self, 'extension_index', MappingProxyType(dict(self.extension_index)))
-        object.__setattr__(self, 'code_analysis', MappingProxyType(dict(self.code_analysis)))
-        object.__setattr__(self, 'class_hierarchies', MappingProxyType(dict(self.class_hierarchies)))
 
-    @classmethod
-    def create_bulk(cls, assets: Dict[str, Asset], 
-                   code_analysis: Dict[str, CodeAnalysis] = None,
-                   hierarchies: Dict[str, ClassHierarchy] = None) -> 'AssetCache':
-        """Create a new cache instance with bulk data."""
-        # Group assets by category
+@dataclass(frozen=True)
+class ClassCache:
+    """Simple storage for class definitions"""
+    classes: Mapping[str, UnprocessedClasses] = field(default_factory=dict)
+    last_updated: datetime = field(default_factory=datetime.now)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, 'classes', MappingProxyType(dict(self.classes)))
+
+class AssetCacheManager:
+    """Manages caching of scanned assets and classes with thread-safe access."""
+    
+    def __init__(self, max_size: int = 1_000_000) -> None:
+        self._asset_cache: Optional[AssetCache] = None
+        self._class_cache: Optional[ClassCache] = None
+        self._max_cache_age = 3600  # 1 hour in seconds
+        self._max_size = max_size
+
+    def add_assets(self, assets: Dict[str, Asset]) -> None:
+        """Bulk add or update assets in cache."""
+        if len(assets) > self._max_size:
+            raise ValueError(f"Cache size exceeded: {len(assets)} > {self._max_size}")
+            
+        # Create asset cache with indexes
         categories: Dict[str, Set[str]] = {}
         extension_index: Dict[str, Set[str]] = {}
         
@@ -54,87 +61,81 @@ class AssetCache:
                 extension_index[ext] = set()
             extension_index[ext].add(path)
 
-        return cls(
+        self._asset_cache = AssetCache(
             assets=assets,
             paths_lower={k.lower(): k for k in assets.keys()},
             categories={k: frozenset(v) for k, v in categories.items()},
             extension_index={k: frozenset(v) for k, v in extension_index.items()},
-            code_analysis=MappingProxyType(code_analysis or {}),
-            class_hierarchies=MappingProxyType(hierarchies or {}),
             last_updated=datetime.now()
         )
 
-class AssetCacheManager:
-    """Manages caching of scanned assets with thread-safe access."""
-    
-    def __init__(self, max_size: int = 1_000_000) -> None:
-        self._cache: Optional[AssetCache] = None
-        self._max_cache_age = 3600  # 1 hour in seconds
-        self._max_size = max_size
+    def add_classes(self, source: str, classes: UnprocessedClasses) -> None:
+        """Store raw class definitions for a source"""
+        current = dict(self._class_cache.classes) if self._class_cache else {}
+        current[source] = classes
+        self._class_cache = ClassCache(classes=current)
 
-    def add_assets(self, assets: Dict[str, Asset]) -> None:
-        """Bulk add or update assets in cache."""
-        if len(assets) > self._max_size:
-            raise ValueError(f"Cache size exceeded: {len(assets)} > {self._max_size}")
-        self._cache = AssetCache.create_bulk(assets)
+    def get_classes(self, source: str) -> Optional[UnprocessedClasses]:
+        """Get stored class definitions for a source"""
+        return self._class_cache.classes.get(source) if self._class_cache else None
 
     def is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
-        if not self._cache:
+        if not self._asset_cache:
             return False
-        return (datetime.now() - self._cache.last_updated).seconds < self._max_cache_age
+        return (datetime.now() - self._asset_cache.last_updated).seconds < self._max_cache_age
 
     def get_asset(self, path: str | Path, case_sensitive: bool = True) -> Optional[Asset]:
         """Get asset by path."""
-        if not self._cache:
+        if not self._asset_cache:
             return None
             
         path_str = str(path).replace('\\', '/')
         if not case_sensitive:
             path_str = path_str.lower()
-            for orig_path, asset in self._cache.assets.items():
+            for orig_path, asset in self._asset_cache.assets.items():
                 if str(orig_path).replace('\\', '/').lower() == path_str:
                     return asset
             return None
-        return self._cache.assets.get(path_str)
+        return self._asset_cache.assets.get(path_str)
 
     def get_assets_by_source(self, source: str) -> Set[Asset]:
         """Get all assets from a specific source."""
-        if not self._cache:
+        if not self._asset_cache:
             return set()
             
         # Handle source with or without @ prefix
         clean_source = source.strip('@')
         matching_sources = {
-            s for s in self._cache.categories.keys() 
+            s for s in self._asset_cache.categories.keys() 
             if s.strip('@') == clean_source
         }
         
         assets = set()
         for s in matching_sources:
-            assets.update(self._cache.assets[path] for path in self._cache.categories[s])
+            assets.update(self._asset_cache.assets[path] for path in self._asset_cache.categories[s])
         return assets
 
     def get_assets_by_extension(self, extension: str) -> Set[Asset]:
         """Get assets by extension using indexed lookup."""
-        if not self._cache:
+        if not self._asset_cache:
             return set()
             
         ext = extension.lower()
-        if ext not in self._cache.extension_index:
+        if ext not in self._asset_cache.extension_index:
             return set()
             
-        return {self._cache.assets[path] for path in self._cache.extension_index[ext]}
+        return {self._asset_cache.assets[path] for path in self._asset_cache.extension_index[ext]}
 
     def find_duplicates(self) -> Dict[str, Set[Asset]]:
         """Find duplicate assets by comparing normalized paths."""
-        if not self._cache:
+        if not self._asset_cache:
             return {}
 
         # Group by filename
         by_name: Dict[str, Set[Asset]] = {}
         
-        for asset in self._cache.assets.values():
+        for asset in self._asset_cache.assets.values():
             name = asset.path.name
             if name not in by_name:
                 by_name[name] = set()
@@ -149,28 +150,8 @@ class AssetCacheManager:
 
     def get_all_assets(self) -> Set[Asset]:
         """Get all cached assets."""
-        return set(self._cache.assets.values()) if self._cache else set()
+        return set(self._asset_cache.assets.values()) if self._asset_cache else set()
 
     def get_sources(self) -> Set[str]:
         """Get all unique asset sources."""
-        return set(self._cache.categories.keys()) if self._cache else set()
-
-    def add_class_hierarchy(self, hierarchy: ClassHierarchy) -> None:
-        """Add or update class hierarchy in cache"""
-        if not self._cache:
-            return
-            
-        hierarchies = dict(self._cache.class_hierarchies)
-        hierarchies[hierarchy.source] = hierarchy
-        
-        self._cache = AssetCache.create_bulk(
-            self._cache.assets,
-            self._cache.code_analysis,
-            hierarchies
-        )
-
-    def get_class_hierarchy(self, source: str) -> Optional[ClassHierarchy]:
-        """Get cached class hierarchy for a source"""
-        if not self._cache:
-            return None
-        return self._cache.class_hierarchies.get(source)
+        return set(self._asset_cache.categories.keys()) if self._asset_cache else set()

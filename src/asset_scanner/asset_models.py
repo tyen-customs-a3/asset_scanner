@@ -40,6 +40,8 @@ class ScanResult:
     """Contains results of an asset scan"""
     assets: Set[Asset]
     scan_time: datetime
+    prefix: Optional[str] = None
+    source: Optional[str] = None  # Add source field
     
     def __iter__(self):
         """Make ScanResult iterable, yielding assets"""

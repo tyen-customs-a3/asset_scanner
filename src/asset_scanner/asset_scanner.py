@@ -1,18 +1,18 @@
 import os
 from pathlib import Path
+import shutil
+import tempfile
 from typing import Set, Dict, Optional, List, Pattern
 from datetime import datetime
-import hashlib
 import logging
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import re
 from .asset_models import Asset, ScanResult
-from .class_models import ClassInfo, UnprocessedClasses
-from .class_scanner import ClassScanner
-import tempfile
-import shutil
+from .class_models import UnprocessedClasses
+from .pbo_extractor import PboExtractor
+from .scanner_engine import ScannerEngine, PBOScannerEngine, RegularFileScannerEngine
+from .class_parser import ClassParser
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ class AssetScanner:
     """Asset scanner for game content"""
     
     VALID_EXTENSIONS = {'.p3d', '.paa', '.sqf', '.pbo', '.wss', '.ogg', '.jpg', '.png', '.cpp', '.hpp'}
+    CODE_EXTENSIONS = {'.cpp', '.hpp', '.sqf'}  # Add this line
     
     def __init__(self, cache_dir: Path, pbo_timeout: int = 30):
         if not cache_dir.exists():
@@ -32,7 +33,16 @@ class AssetScanner:
         self._max_workers = max(1, (os.cpu_count() or 2) - 1)
         self.progress_callback = None  # Add this line
         self._temp_dir = None
-        self.class_scanner = ClassScanner(self)
+        
+        # Initialize components in correct order
+        self.pbo_extractor = PboExtractor(timeout=pbo_timeout)
+        self.class_parser = ClassParser()  # Add this line
+        
+        # Initialize scanner engines
+        self.engines: List[ScannerEngine] = [
+            PBOScannerEngine(self.pbo_extractor, self.class_parser),
+            RegularFileScannerEngine(self.VALID_EXTENSIONS)
+        ]
 
     def __del__(self):
         self.cleanup()
@@ -46,6 +56,7 @@ class AssetScanner:
         if self._temp_dir:
             shutil.rmtree(self._temp_dir, ignore_errors=True)
             self._temp_dir = None
+        self.pbo_extractor.cleanup()
 
     def _get_temp_dir(self) -> Path:
         """Get or create temporary directory"""
@@ -82,16 +93,11 @@ class AssetScanner:
                 if patterns and not any(p.match(str(file_path)) for p in patterns):
                     continue
 
-                # Handle PBOs separately
-                if file_path.suffix.lower() == '.pbo':
-                    future = self._executor.submit(self._scan_pbo, file_path)
-                else:
-                    # Only process files with valid extensions
-                    if file_path.suffix.lower() not in self.VALID_EXTENSIONS:
-                        continue
-                    future = self._executor.submit(self._scan_regular_file, file_path, path)
+                # Use engines for scanning
+                result = self._scan_file(file_path)
+                if result:
+                    assets.update(result.assets)
                 
-                futures.append(future)
                 self._file_count += 1
 
             # Process results as they complete
@@ -174,109 +180,83 @@ class AssetScanner:
             logger.error(f"Error scanning file {file_path}: {e}")
             return None
 
-    def _extract_prefix_from_pbo(self, stdout: str) -> Optional[str]:
-        """Extract the prefix line from PBO output"""
-        for line in stdout.splitlines():
-            if line.startswith('prefix='):
-                return line.split('=')[1].strip().replace('\\', '/').strip(';')
-        return None
-
-    def _scan_pbo(self, pbo_path: Path) -> Set[Asset]:
-        """Extract asset information from PBO."""
+    def scan_pbo(self, pbo_path: Path, extract_classes: bool = True) -> ScanResult:
+        """Extract information from a PBO file."""
         try:
             if self.progress_callback:
                 self.progress_callback(str(pbo_path))
                 
             source = pbo_path.parent.parent.name.strip('@')
+            logger.debug(f"Scanning PBO {pbo_path.name} from source {source}")
             
-            result = subprocess.run(
-                ['extractpbo', '-LBP', str(pbo_path)], 
-                capture_output=True, 
-                text=True, 
-                timeout=self.pbo_timeout  # Use configurable timeout
-            )
+            # Get prefix first
+            _, stdout, _ = self.pbo_extractor.list_contents(pbo_path)
+            prefix = self.pbo_extractor.extract_prefix(stdout)
+            logger.debug(f"Found prefix: {prefix}")
             
-            if result.returncode != 0:
-                logger.error(f"PBO extraction failed: {pbo_path}")
-                return set()
+            # Then scan contents with known prefix
+            returncode, code_files, all_paths = self.pbo_extractor.scan_pbo_contents(pbo_path)
+            if returncode != 0:
+                logger.error(f"PBO scan failed with code {returncode}")
+                return ScanResult(assets=set(), scan_time=datetime.now(), prefix=prefix, source=source)
 
-            # Extract and validate prefix
-            prefix = self._extract_prefix_from_pbo(result.stdout)
-            if not prefix:
-                logger.warning(f"No prefix found in PBO: {pbo_path}")
-                return set()
-
+            # Process assets - only include asset files, not code files
             assets = set()
-            seen_paths = set()
             current_time = datetime.now()
+            asset_extensions = {'.p3d', '.paa', '.jpg', '.png', '.wss', '.ogg', '.rtm'}  # Added .rtm
 
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if not line or line.startswith(('Active code page:', 'Opening ', 'prefix=', '==', '$')):
-                    continue
-                        
-                if not any(line.endswith(ext) for ext in self.VALID_EXTENSIONS):
-                    continue
+            logger.debug(f"\nProcessing {len(all_paths)} paths from PBO:")
+            logger.debug(f"Looking for extensions: {sorted(asset_extensions)}")
 
-                # Use consolidated path normalization
-                normalized_path = self._normalize_path(line, prefix=prefix)
-                if not normalized_path:
+            for path in all_paths:
+                path_lower = path.lower()
+                
+                # Skip non-asset files
+                if not any(path_lower.endswith(ext) for ext in asset_extensions):
+                    logger.debug(f"Skipping non-asset file: {path}")
                     continue
                     
-                path_key = str(normalized_path)
-                if path_key in seen_paths:
+                # Skip empty or invalid paths
+                if not path:
+                    logger.debug("Skipping empty path")
                     continue
-
-                seen_paths.add(path_key)
+                    
+                # Create asset
+                logger.debug(f"Adding asset: {path}")
                 assets.add(Asset(
-                    path=normalized_path,
+                    path=Path(path),
                     source=source,
                     last_scan=current_time,
-                    has_prefix=bool(prefix and path_key.startswith(prefix)),
+                    has_prefix=True,
                     pbo_path=pbo_path.relative_to(pbo_path.parent.parent)
                 ))
 
-            return assets
+            logger.debug(f"\nFound {len(assets)} assets:")
+            for asset in sorted(assets, key=lambda x: str(x.path)):
+                logger.debug(f"  {asset.path}")
 
-        except subprocess.TimeoutExpired:
-            logger.warning(f"PBO scanning timeout: {pbo_path}")
+            return ScanResult(
+                assets=assets, 
+                scan_time=current_time,
+                prefix=prefix,
+                source=source
+            )
+            
         except Exception as e:
             logger.error(f"PBO scanning error: {pbo_path} - {e}")
-        
-        return set()
+            return ScanResult(assets=set(), scan_time=datetime.now(), prefix=None, source=source)
+
+    def _scan_pbo(self, pbo_path: Path) -> Set[Asset]:
+        """Internal PBO scanning implementation"""
+        return self.scan_pbo(pbo_path).assets
 
     def read_pbo_code(self, pbo_path: Path) -> Dict[str, str]:
         """Extract and read code files from PBO"""
-        try:
-            temp_dir = self._get_temp_dir() / pbo_path.stem
-            temp_dir.mkdir(parents=True, exist_ok=True)
-
-            # Extract only code files
-            result = subprocess.run(
-                ['extractpbo', '-F', '*.cpp,*.hpp,*.sqf', str(pbo_path), str(temp_dir)],
-                capture_output=True,
-                text=True,
-                timeout=self.pbo_timeout
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Failed to extract code from PBO: {pbo_path}")
-                return {}
-
-            code_files = {}
-            for ext in self.CODE_EXTENSIONS:
-                for file_path in temp_dir.rglob(f'*{ext}'):
-                    try:
-                        code_files[str(file_path.relative_to(temp_dir))] = file_path.read_text(encoding='utf-8')
-                    except Exception as e:
-                        logger.warning(f"Failed to read {file_path}: {e}")
-
-            return code_files
-
-        except Exception as e:
-            logger.error(f"Error reading PBO code: {pbo_path} - {e}")
-            return {}
-        finally:
-            # Clean up extracted files
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
+        return self.pbo_extractor.extract_code_files(pbo_path, self.CODE_EXTENSIONS)
+    
+    def _scan_file(self, file_path: Path) -> Optional[ScanResult]:
+        """Scan a single file using appropriate engine"""
+        for engine in self.engines:
+            if engine.supports_file(file_path):
+                return engine.scan_file(file_path)
+        return None

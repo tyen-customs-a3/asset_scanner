@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from .asset_models import Asset, ScanResult
 from .asset_scanner import AssetScanner
+from .class_models import UnprocessedClasses
 from .cache import AssetCacheManager
 import pickle
 
@@ -253,6 +254,64 @@ class AssetAPI:
                 
         # If no parent source, use optimized scan_multiple
         return self.scan_multiple(paths_to_scan)
+
+    def scan_pbo(self, pbo_path: Path) -> ScanResult:
+        """Scan a single PBO file directly"""
+        try:
+            if not pbo_path.exists():
+                raise FileNotFoundError(f"PBO file not found: {pbo_path}")
+
+            with self._stats_lock:
+                self._scan_stats['total_scans'] += 1
+
+            # Just return scanner result directly, source is already set
+            return self._scanner.scan_pbo(pbo_path)
+            
+        except Exception as e:
+            self._handle_error(e, f"scan_pbo failed: {pbo_path}")
+            raise
+
+    def scan_pbo_with_classes(self, pbo_path: Path) -> tuple[ScanResult, Optional[UnprocessedClasses]]:
+        """Scan a PBO file for both assets and class definitions"""
+        try:
+            if not pbo_path.exists():
+                raise FileNotFoundError(f"PBO file not found: {pbo_path}")
+
+            with self._stats_lock:
+                self._scan_stats['total_scans'] += 1
+
+            scan_result, class_result = self._scanner.scan_pbo(pbo_path, extract_classes=True)
+            
+            # Store classes directly without analysis
+            if class_result:
+                source = pbo_path.parent.parent.name.strip('@')
+                self._cache.add_classes(source, class_result)
+                
+            return scan_result, class_result
+            
+        except Exception as e:
+            self._handle_error(e, f"scan_pbo_with_classes failed: {pbo_path}")
+            raise
+
+    def get_stored_classes(self, source: str) -> Optional[UnprocessedClasses]:
+        """Get stored class definitions for analysis"""
+        return self._cache.get_classes(source)
+
+    def scan_directory_with_classes(self, path: Path, patterns: Optional[List[Pattern]] = None) -> tuple[ScanResult, List[UnprocessedClasses]]:
+        """Scan directory for both assets and class definitions"""
+        asset_results = self.scan_directory(path, patterns)
+        class_results = []
+        
+        # Find and process PBOs for class definitions
+        for asset in asset_results.assets:
+            if asset.pbo_path:
+                pbo_path = path / asset.pbo_path
+                if pbo_path.exists():
+                    _, class_result = self.scan_pbo_with_classes(pbo_path)
+                    if class_result:
+                        class_results.append(class_result)
+        
+        return asset_results, class_results
 
     # ---- Asset Retrieval ----
 
