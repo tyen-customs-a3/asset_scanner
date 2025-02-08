@@ -1,5 +1,4 @@
 import pytest
-from pathlib import Path
 from asset_scanner import AssetAPI
 
 @pytest.fixture

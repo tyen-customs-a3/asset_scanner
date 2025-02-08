@@ -1,6 +1,5 @@
 from .asset_models import Asset, ScanResult
-from .asset_scanner import AssetScanner
-from .api import AssetAPI, APIConfig  # Added APIConfig
+from .api import AssetAPI
 
 __version__ = "0.1.0"
 __all__ = [
@@ -8,5 +7,5 @@ __all__ = [
     'ScanResult', 
     'AssetScanner',
     'AssetAPI',
-    'APIConfig'
+    'AssetConfig',
 ]

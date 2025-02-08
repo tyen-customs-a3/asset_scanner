@@ -1,7 +1,5 @@
 """Asset search and filtering tests"""
 import pytest
-import re
-from pathlib import Path
 from asset_scanner import AssetAPI
 
 @pytest.fixture

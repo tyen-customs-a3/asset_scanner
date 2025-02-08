@@ -4,7 +4,6 @@ from types import MappingProxyType
 from pathlib import Path
 from datetime import datetime
 from .asset_models import Asset
-from .class_models import UnprocessedClasses
 
 @dataclass(frozen=True)
 class AssetCache:
@@ -24,8 +23,7 @@ class AssetCache:
 
 @dataclass(frozen=True)
 class ClassCache:
-    """Simple storage for class definitions"""
-    classes: Mapping[str, UnprocessedClasses] = field(default_factory=dict)
+    """Immutable cache container for class definitions"""
     last_updated: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:
@@ -69,16 +67,6 @@ class AssetCacheManager:
             last_updated=datetime.now()
         )
 
-    def add_classes(self, source: str, classes: UnprocessedClasses) -> None:
-        """Store raw class definitions for a source"""
-        current = dict(self._class_cache.classes) if self._class_cache else {}
-        current[source] = classes
-        self._class_cache = ClassCache(classes=current)
-
-    def get_classes(self, source: str) -> Optional[UnprocessedClasses]:
-        """Get stored class definitions for a source"""
-        return self._class_cache.classes.get(source) if self._class_cache else None
-
     def is_cache_valid(self) -> bool:
         """Check if cache is still valid."""
         if not self._asset_cache:
@@ -111,7 +99,7 @@ class AssetCacheManager:
             if s.strip('@') == clean_source
         }
         
-        assets = set()
+        assets: set[Asset] = set()
         for s in matching_sources:
             assets.update(self._asset_cache.assets[path] for path in self._asset_cache.categories[s])
         return assets

@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Set, Optional, Dict, List
+from typing import Iterator, Set, Optional, Dict, List
 from types import MappingProxyType
+
 
 @dataclass(frozen=True)
 class Asset:
@@ -13,7 +14,7 @@ class Asset:
     has_prefix: bool = True
     pbo_path: Optional[Path] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Ensure path is normalized on creation"""
         if self.path:
             normalized = str(self.path).replace('\\', '/').strip('/')
@@ -21,7 +22,6 @@ class Asset:
         if self.pbo_path:
             normalized = str(self.pbo_path).replace('\\', '/').strip('/')
             object.__setattr__(self, 'pbo_path', Path(normalized))
-        # Strip @ prefix from source
         if self.source.startswith('@'):
             object.__setattr__(self, 'source', self.source.strip('@'))
 
@@ -35,14 +35,30 @@ class Asset:
         """Get just the filename without directories"""
         return self.path.name
 
+
 @dataclass
 class ScanResult:
     """Contains results of an asset scan"""
-    assets: Set[Asset]
-    scan_time: datetime
-    prefix: Optional[str] = None
-    source: Optional[str] = None  # Add source field
-    
-    def __iter__(self):
+    assets: Set[Asset] = field(default_factory=set)
+    scan_time: datetime = field(default_factory=datetime.now)
+    source: str = ''
+    prefix: str = ''
+    path: Optional[Path] = None
+    mod_pack: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.scan_time:
+            self.scan_time = datetime.now()
+        if not self.assets:
+            self.assets = set()
+
+    def __iter__(self) -> Iterator[Asset]:
         """Make ScanResult iterable, yielding assets"""
         return iter(self.assets)
+
+    def to_dict(self) -> dict:
+        """Convert the scan result to a dictionary representation."""
+        return {
+            'assets': [str(asset.path) for asset in self.assets],
+            'scan_time': self.scan_time.isoformat()
+        }
