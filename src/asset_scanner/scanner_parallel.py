@@ -1,28 +1,19 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, List, Set, Dict, Optional, Callable, Tuple
+from typing import Any, List, Set, Dict, Optional, Tuple
 from datetime import datetime
 import logging
-import os
 
-from asset_scanner.pbo_extractor import PboExtractor
-from .scanner_base import BaseScanner
 from .asset_models import ScanResult, Asset
-from .scanner_tasks import ScanTask, TaskManager, TaskStatus
-from asset_scanner.types.progress_callback import ProgressCallbackType
+from .scanner_tasks import ScanTask, TaskManager, TaskStatus, TaskPriority
 
+class ParallelScanner:
+    """Unified scanner implementation"""
+    ASSET_EXTENSIONS = {'.p3d', '.paa', '.rtm', '.jpg', '.jpeg', '.png', '.tga', '.wrp', '.pac', '.lip'}
 
-class ParallelScanner(BaseScanner):
-    """Parallel scanner with distinct processing stages"""
-
-    def __init__(self,
-                 pbo_extractor: Any,
-                 class_parser: Any,
-                 max_workers: int = 3,
-                 progress_callback: Optional[ProgressCallbackType] = None) -> None:
-        super().__init__(pbo_extractor, class_parser, progress_callback)
+    def __init__(self, pbo_extractor: Any, max_workers: int = 3):
+        self.pbo_extractor = pbo_extractor
         self.max_workers = max_workers
-        self.progress_callback = progress_callback
         self.logger = logging.getLogger(__name__)
         self.task_manager = TaskManager(max_workers=self.max_workers)
 
@@ -44,12 +35,7 @@ class ParallelScanner(BaseScanner):
                     assets, pbos = future.result()
                     loose_files['assets'].extend(assets)
                     loose_files['pbos'].extend(pbos)
-                    if self.progress_callback:
-                        processed_dirs += 1
-                        self.progress_callback(
-                            f"Found {len(assets)} assets and {len(pbos)} PBOs in {directory}",
-                            processed_dirs / total_dirs
-                        )
+
                 except Exception as e:
                     self.logger.error(f"Error scanning directory {directory}: {e}")
 
@@ -62,9 +48,10 @@ class ParallelScanner(BaseScanner):
         try:
             for item in directory.rglob('*'):
                 if item.is_file():
-                    if item.suffix.lower() == '.pbo':
+                    suffix = item.suffix.lower()
+                    if suffix == '.pbo':
                         pbos.append(item)
-                    elif item.suffix.lower() in self.ASSET_EXTENSIONS:
+                    elif suffix in self.ASSET_EXTENSIONS:
                         assets.append(item)
         except Exception as e:
             self.logger.error(f"Error scanning {directory}: {e}")
@@ -99,147 +86,48 @@ class ParallelScanner(BaseScanner):
                                     paths.add(clean_path)
 
                         pbo_contents[pbo] = (prefix_clean, paths)
-                        if self.progress_callback:
-                            processed_pbos += 1
-                            self.progress_callback(
-                                f"Listed {len(paths)} files in {pbo.name}",
-                                processed_pbos / total_pbos
-                            )
+
                 except Exception as e:
                     self.logger.error(f"Error listing contents of {pbo}: {e}")
 
         return pbo_contents
 
-    def extract_code_files(self, pbo_contents: Dict[Path, Tuple[str, Set[str]]]) -> Dict[Path, Dict[str, str]]:
-        """Stage 3: Extract and parse code files"""
-        code_files = {}
-
-        code_pbos = {}
-        for pbo, (_, paths) in pbo_contents.items():
-            if any(str(p).lower().endswith(('.cpp', '.hpp', '.bin', 'config.bin'))
-                   for p in paths):
-                code_pbos[pbo] = paths
-
-        self.logger.debug(f"Found {len(code_pbos)} PBOs with potential code files")
-
-        total_files = len(code_pbos)
-        processed = 0
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_pbo = {
-                executor.submit(
-                    self.pbo_extractor.extract_code_files,
-                    pbo,
-                    {'.cpp', '.hpp'}
-                ): pbo
-                for pbo in code_pbos.keys()
-            }
-
-            for future in as_completed(future_to_pbo):
-                pbo = future_to_pbo[future]
-                try:
-                    extracted_files = future.result()
-                    if extracted_files:
-                        self.logger.debug(f"Got {len(extracted_files)} files from {pbo.name}")
-                        code_files[pbo] = extracted_files
-                        if self.progress_callback:
-                            processed += 1
-                            self.progress_callback(
-                                f"Extracted {len(extracted_files)} files from {pbo.name}",
-                                processed / total_files
-                            )
-                except Exception as e:
-                    self.logger.error(f"Failed to extract from {pbo}: {e}")
-
-        return code_files
-
-    def scan_class_files(self, code_files: Dict[Path, Dict[str, str]]) -> Any:
-        """Stage 4: Parse and process class files"""
-        self.logger.debug(f"Starting class file scanning for {len(code_files)} PBOs")
-        class_results = {}
-
-        total_files = len(code_files)
-        processed = 0
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {}
-            for pbo_path, files in code_files.items():
-                self.logger.debug(f"Submitting {len(files)} files from {pbo_path.name} for class parsing")
-                future = executor.submit(self._process_class_files, files, pbo_path)
-                futures[future] = pbo_path
-
-            for future in as_completed(futures):
-                pbo_path = futures[future]
-                try:
-                    if result := future.result():
-                        self.logger.debug(f"Got {len(result.classes)} classes from {pbo_path.name}")
-                        class_results[pbo_path] = result
-                        if self.progress_callback:
-                            processed += 1
-                            self.progress_callback(
-                                f"Processed {len(result.classes)} classes from {pbo_path.name}",
-                                processed / total_files
-                            )
-                except Exception as e:
-                    self.logger.error(f"Error processing classes from {pbo_path}: {e}")
-
-        self.logger.debug(f"Completed class scanning. Found classes in {len(class_results)} PBOs")
-        return class_results
-
-    def _process_class_files(
-        self,
-        files: Dict[str, str],
-        pbo_path: Optional[Path] = None,
-        mod_name: Optional[str] = None
-    ) -> Any:
-        # TODO 
-        return None
-
     def scan_directories(self, directories: List[Path], source: str = "None") -> List[ScanResult]:
-        """Main scanning method with expanded stages"""
+        """Scan directories preserving original source names"""
         try:
             results = []
-            stage = 1
-            total_stages = 5
-
-            self.logger.info("Stage 1: Discovering loose files...")
-            if self.progress_callback:
-                self.progress_callback("Starting asset scan", 0.0)
-
+            self.logger.info("Discovering files...")
             loose_files = self.discover_loose_files(directories)
-            self.logger.info(
-                f"Found {len(loose_files['assets'])} loose assets and "
-                f"{len(loose_files['pbos'])} PBOs"
-            )
+            
+            # Track processed assets to avoid duplicates
+            processed_paths = set()
+            
+            for directory in directories:
+                dir_source = directory.name
+                dir_files = [
+                    f for f in loose_files['assets'] 
+                    if directory in f.parents and f not in processed_paths
+                ]
+                
+                if dir_files:
+                    for result in self._process_loose_assets(dir_files, dir_source):
+                        results.append(result)
+                        processed_paths.update(a.path for a in result.assets)
 
-            if loose_files['assets']:
-                asset_results = self._process_loose_assets(loose_files['assets'], source)
-                results.extend(asset_results)
-
-            if not loose_files['pbos']:
-                return results
-
-            self.logger.info("Stage 2: Scanning PBO contents...")
-            pbo_contents = self.scan_pbo_contents(loose_files['pbos'])
-
-            self.logger.info("Stage 3: Processing code files...")
-            code_files = self.extract_code_files(pbo_contents)
-
-            self.logger.info("Stage 4: Processing class files...")
-            class_results = self.scan_class_files(code_files)
-
-            self.logger.info("Stage 5: Creating final results...")
-            pbo_results = self._process_pbo_results(pbo_contents, class_results, source)
-            results.extend(pbo_results)
-
-            if self.progress_callback:
-                self.progress_callback("Scan completed", 1.0)
+                dir_pbos = [
+                    p for p in loose_files['pbos'] 
+                    if directory in p.parents and p not in processed_paths
+                ]
+                if dir_pbos:
+                    pbo_contents = self.scan_pbo_contents(dir_pbos)
+                    pbo_results = self._process_pbo_results(pbo_contents, dir_source)
+                    results.extend(pbo_results)
+                    for r in pbo_results:
+                        processed_paths.update(a.path for a in r.assets)
 
             return results
 
         except Exception as e:
-            if self.progress_callback:
-                self.progress_callback(f"Error during scanning: {e}", 1.0)
             self.logger.error(f"Error during scanning: {e}")
             return []
 
@@ -267,60 +155,51 @@ class ParallelScanner(BaseScanner):
         """Process PBO contents and create final results"""
         results = []
 
-        task_sources = {
-            task.path: task
-            for task in self.task_manager.tasks.values()
-        }
-
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {}
-
             for pbo, (prefix, paths) in pbo_contents.items():
-                task = task_sources.get(pbo)
-                if task:
-                    task.status = TaskStatus.PROCESSING
-                    task.start_time = datetime.now()
-
                 future = executor.submit(
                     self._create_pbo_result,
                     pbo,
                     prefix,
                     paths,
-                    task.source if task else source
+                    source
                 )
-                futures[future] = (pbo, task)
+                futures[future] = pbo
 
             for future in as_completed(futures):
-                pbo, task = futures[future]
-                try:
-                    if result := future.result():
-                        results.append(result)
-                        if task:
-                            task.status = TaskStatus.COMPLETED
-                            task.end_time = datetime.now()
-                    else:
-                        if task:
-                            task.status = TaskStatus.FAILED
-                            task.error = "Failed to create result"
-                except Exception as e:
-                    self.logger.error(f"Error creating PBO result: {e}")
-                    if task:
-                        task.status = TaskStatus.FAILED
-                        task.error = str(e)
-                        task.end_time = datetime.now()
+                if result := future.result():
+                    results.append(result)
 
         return results
 
     def _create_asset_result(self, path: Path, source: str) -> Optional[ScanResult]:
-        """Create result for a loose asset file"""
         try:
             if not path.exists():
                 return None
 
             current_time = datetime.now()
+            
+            # Find the mod root directory and get relative path
+            mod_root = None
+            for parent in path.parents:
+                if parent.name == source:  # Match exact source name
+                    mod_root = parent
+                    break
+            
+            if mod_root:
+                # Get path relative to mod root, preserve structure
+                rel_path = path.relative_to(mod_root)
+            else:
+                # Fallback to parent.parent if no mod root found
+                rel_path = path.relative_to(path.parent.parent)
+
+            # Clean up path but preserve exact source
+            clean_path = str(rel_path).replace('\\', '/')
+
             asset = Asset(
-                path=path,
-                source=source,
+                path=Path(clean_path),
+                source=source,  # Keep exact source name
                 last_scan=current_time,
                 has_prefix=False
             )
@@ -346,22 +225,23 @@ class ParallelScanner(BaseScanner):
         """Create result for a PBO file with parallel processing"""
         try:
             current_time = datetime.now()
-            self.logger.debug(f"Creating PBO result for {pbo_path.name}")
-
-            assets = set()
-            asset_extensions = {ext.lower() for ext in self.ASSET_EXTENSIONS}
-
+            
+            pbo_asset = Asset(
+                path=pbo_path.relative_to(pbo_path.parent.parent),
+                source=source,
+                last_scan=current_time,
+                has_prefix=bool(prefix)
+            )
+            
+            assets = {pbo_asset}
+            
             if prefix:
                 prefix = prefix.replace('\\', '/').strip('/')
 
             for path in file_paths:
                 path_lower = path.lower()
-                if any(path_lower.endswith(ext) for ext in asset_extensions):
+                if any(path_lower.endswith(ext) for ext in self.ASSET_EXTENSIONS):
                     clean_path = path.replace('\\', '/').strip('/')
-                    # Remove the source prefix if present
-                    if source and clean_path.startswith(source + '/'):
-                        clean_path = clean_path[len(source)+1:].strip('/')
-                    
                     assets.add(Asset(
                         path=Path(clean_path),
                         source=source,
@@ -370,7 +250,7 @@ class ParallelScanner(BaseScanner):
                         pbo_path=pbo_path.relative_to(pbo_path.parent.parent)
                     ))
 
-            result = ScanResult(
+            return ScanResult(
                 path=pbo_path,
                 prefix=prefix or '',
                 assets=assets,
@@ -378,34 +258,9 @@ class ParallelScanner(BaseScanner):
                 source=source
             )
 
-            self.logger.debug(
-                f"Final PBO result for {pbo_path.name}: "
-                f"{len(assets)} assets, "
-            )
-            return result
-
         except Exception as e:
             self.logger.error(f"Error processing PBO {pbo_path}: {e}")
             raise
-
-    def _parse_code_file(self, file_path: str, content: str, pbo_path: Optional[Path] = None, mod_name: Optional[str] = None) -> Optional[Dict[str, Dict[str, Any]]]:
-        """Parse a single code file in parallel"""
-        try:
-            parsed_classes, inheritance, properties = self.class_parser.parse(str(content))
-            result: Dict[str, Dict[str, Any]] = {}
-            
-            for class_name, props in parsed_classes.items():
-                str_class_name = str(class_name)
-                result[str_class_name] = {
-                    'properties': {str(k): str(v) for k, v in props.items()} if props else {},
-                    'parent': str(inheritance.get(class_name, '')),
-                    'source_pbo': str(pbo_path) if pbo_path else '',
-                    'source_mod': str(mod_name) if mod_name else ''
-                }
-            return result
-        except Exception as e:
-            self.logger.error(f"Failed to parse {file_path}: {e}")
-            return None
 
     def _process_task(self, task: ScanTask) -> Optional[ScanResult]:
         """Process a single task with proper error handling"""
@@ -415,8 +270,6 @@ class ParallelScanner(BaseScanner):
 
             msg = f"Processing {task.path.name}"
             self.logger.debug(msg)
-            if self.progress_callback:
-                self.progress_callback(msg, 0.0)
 
             result = None
             try:
@@ -434,14 +287,11 @@ class ParallelScanner(BaseScanner):
                     task.error = "Failed to process task"
 
                 self.logger.debug(msg)
-                if self.progress_callback:
-                    self.progress_callback(msg, 1.0)
 
             except Exception as e:
                 error_msg = f"Failed {task.path.name}: {e}"
                 self.logger.error(error_msg)
-                if self.progress_callback:
-                    self.progress_callback(error_msg, 1.0)
+
                 task.status = TaskStatus.FAILED
                 task.error = str(e)
                 result = None
@@ -455,4 +305,77 @@ class ParallelScanner(BaseScanner):
                 error=task.error or '',
                 failed=task.status == TaskStatus.FAILED
             )
+
+    def _scan_pbo(self, task: ScanTask) -> Optional[ScanResult]:
+        """Scan a PBO file for task processing"""
+        try:
+            current_time = datetime.now()
+            assets = set()
+            
+            returncode, stdout, stderr = self.pbo_extractor.list_contents(task.path)
+            if returncode != 0:
+                return None
+                
+            prefix = self.pbo_extractor.extract_prefix(stdout)
+            if prefix:
+                prefix = prefix.replace('\\', '/').strip('/')
+                
+            pbo_asset = Asset(
+                path=task.path.relative_to(task.path.parent.parent),
+                source=task.source,
+                last_scan=current_time,
+                has_prefix=bool(prefix)
+            )
+            assets.add(pbo_asset)
+            
+            return ScanResult(
+                path=task.path,
+                prefix=prefix or '',
+                assets=assets,
+                scan_time=current_time,
+                source=task.source
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error processing PBO task {task.path}: {e}")
+            return None
+
+    def _scan_asset(self, task: ScanTask) -> Optional[ScanResult]:
+        """Scan a regular asset file for task processing"""
+        try:
+            if not task.path.exists():
+                return None
+                
+            # Find mod root directory
+            mod_root = None
+            for parent in task.path.parents:
+                if parent.name == task.source:
+                    mod_root = parent
+                    break
+
+            # Get relative path preserving structure
+            if mod_root:
+                rel_path = task.path.relative_to(mod_root)
+            else:
+                rel_path = task.path.relative_to(task.path.parent.parent)
+
+            clean_path = str(rel_path).replace('\\', '/')
+            
+            asset = Asset(
+                path=Path(clean_path),
+                source=task.source,  # Keep exact source name
+                last_scan=datetime.now(),
+                has_prefix=False
+            )
+            
+            return ScanResult(
+                assets={asset},
+                scan_time=datetime.now(),
+                source=task.source,
+                path=task.path
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error processing asset task {task.path}: {e}")
+            return None
 

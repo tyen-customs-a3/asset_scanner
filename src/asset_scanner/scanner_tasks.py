@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Set, Dict, Optional
 from pathlib import Path
 from datetime import datetime
@@ -30,13 +30,11 @@ class ScanTask:
     error: Optional[str] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    metadata: Dict = None
+    metadata: Dict = field(default_factory=dict)  # Fixed: Use field with default_factory
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.dependencies is None:
             self.dependencies = set()
-        if self.metadata is None:
-            self.metadata = {}
         
 class TaskManager:
     """Manages scan tasks with priority and dependencies"""

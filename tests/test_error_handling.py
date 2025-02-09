@@ -33,7 +33,7 @@ def test_error_handler() -> None:
     api = AssetAPI(Path("test"), config=config)
 
     try:
-        api.scan_directory(Path("nonexistent"))
+        api.scan(Path("nonexistent"))
     except FileNotFoundError:
         pass
 

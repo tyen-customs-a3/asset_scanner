@@ -32,7 +32,7 @@ from pathlib import Path
 api = AssetAPI(Path("cache"))
 
 # Scan a directory
-result = api.scan_directory(Path("@mod"))
+result = api.scan(Path("@mod"))
 
 # Get all assets
 assets = api.get_all_assets()

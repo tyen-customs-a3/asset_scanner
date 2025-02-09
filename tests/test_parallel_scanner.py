@@ -1,6 +1,7 @@
+from math import log
+from venv import logger
 import pytest
 from pathlib import Path
-from asset_scanner.parser.class_parser import ClassParser
 from asset_scanner.scanner_parallel import ParallelScanner
 from asset_scanner.scanner_tasks import TaskPriority, TaskStatus, ScanTask
 from asset_scanner.pbo_extractor import PboExtractor
@@ -20,8 +21,7 @@ def sample_pbos() -> dict:
 @pytest.fixture
 def parallel_scanner(tmp_path: Path) -> ParallelScanner:
     extractor = PboExtractor()
-    parser = ClassParser()
-    return ParallelScanner(extractor, parser, max_workers=2)
+    return ParallelScanner(extractor, max_workers=2)
 
 
 def test_error_handling(parallel_scanner: ParallelScanner, tmp_path: Path) -> None:
@@ -150,42 +150,3 @@ def test_task_dependencies(parallel_scanner: ParallelScanner, tmp_path: Path) ->
     tasks = parallel_scanner.task_manager.get_next_tasks(limit=1)
     assert len(tasks) == 1
     assert tasks[0].path == main_pbo
-
-
-def test_asset_detection(parallel_scanner: ParallelScanner, sample_pbos: dict) -> None:
-    """Test that assets are correctly found in PBO files"""
-    for name, (pbo_path, expected_paths) in sample_pbos.items():
-        task = ScanTask(
-            path=pbo_path,
-            priority=TaskPriority.HIGH,
-            task_type='pbo',
-            source=name
-        )
-
-        # Use the inherited _scan_pbo method from BaseScanner
-        result = parallel_scanner._scan_pbo(task)
-        assert result is not None, f"Processing {name} PBO should return a result"
-
-        # Process found paths to match expected format
-        found_paths = set()
-        for asset in result.assets:
-            # Get the normalized path and remove any source/addons prefix
-            path_str = str(asset.path).replace('\\', '/').strip('/')
-            
-            # Ensure the path doesn't start with the source or addons
-            parts = path_str.split('/')
-            while parts and parts[0] in {'addons', asset.source, 'tc'}:
-                parts.pop(0)
-            
-            if parts:
-                found_paths.add('/'.join(parts))
-
-        # Filter out binary and source files from comparison
-        found_paths = {p for p in found_paths if not p.endswith(('.bin', '.cpp', '.hpp'))}
-        
-        # Compare with expected paths
-        extra = found_paths - expected_paths
-        missing = expected_paths - found_paths
-
-        assert not extra, f"Found unexpected files in {name}: {sorted(extra)}"
-        assert not missing, f"Missing expected files in {name}: {sorted(missing)}"

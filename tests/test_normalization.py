@@ -53,7 +53,7 @@ def test_api_path_handling(tmp_path):
     mod_dir.mkdir()
     (mod_dir / "test.paa").write_text("content")
     
-    api.scan_directory(mod_dir)
+    api.scan(mod_dir)
     
     # Different ways to reference the same file
     paths = [

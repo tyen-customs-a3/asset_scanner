@@ -5,13 +5,8 @@ import tempfile
 from typing import Set, Dict, Optional, List, Pattern, Callable, Any, Tuple
 from datetime import datetime
 import logging
-import subprocess
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import concurrent
-
-from asset_scanner.class_parser.class_parser import ClassParser
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 
 from .asset_models import Asset, ScanResult
 from .pbo_extractor import PboExtractor
@@ -23,7 +18,10 @@ logger = logging.getLogger(__name__)
 class AssetScanner:
     """Asset scanner for game content"""
 
-    VALID_EXTENSIONS = {'.p3d', '.paa', '.sqf', '.pbo', '.wss', '.ogg', '.jpg', '.png', '.cpp', '.hpp'}
+    VALID_EXTENSIONS = {'.p3d', '.paa', '.sqf', '.pbo', '.wss', '.ogg',
+                        '.jpg', '.png', '.cpp', '.hpp', '.rvmat', '.rtm',
+                        '.bin', '.ext'
+                        }
     CODE_EXTENSIONS = {'.cpp', '.hpp', '.sqf'}
 
     def __init__(self, cache_dir: Path, pbo_timeout: int = 30):
@@ -102,7 +100,7 @@ class AssetScanner:
 
             self._file_count = 0
             assets = set()
-            futures: List[concurrent.futures.Future] = []
+            futures: List[Future] = []
             pbo_count = 0
 
             for file_path in path.rglob('*'):
@@ -227,7 +225,7 @@ class AssetScanner:
 
             assets = set()
             current_time = datetime.now()
-            asset_extensions = {'.p3d', '.paa', '.jpg', '.png', '.wss', '.ogg', '.rtm'}
+            asset_extensions = {'.p3d', '.paa', '.jpg', '.png', '.wss', '.ogg', '.rtm', '.rvmat', '.bin', '.ext'}
 
             processed_paths = 0
             for path in all_paths:

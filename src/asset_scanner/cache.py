@@ -1,4 +1,4 @@
-from typing import Dict, Set, Optional, Mapping, List
+from typing import Dict, Set, Optional, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from pathlib import Path
@@ -21,20 +21,11 @@ class AssetCache:
         object.__setattr__(self, 'categories', MappingProxyType(dict(self.categories)))
         object.__setattr__(self, 'extension_index', MappingProxyType(dict(self.extension_index)))
 
-@dataclass(frozen=True)
-class ClassCache:
-    """Immutable cache container for class definitions"""
-    last_updated: datetime = field(default_factory=datetime.now)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, 'classes', MappingProxyType(dict(self.classes)))
-
 class AssetCacheManager:
-    """Manages caching of scanned assets and classes with thread-safe access."""
+    """Manages caching of scanned assets with thread-safe access."""
     
     def __init__(self, max_size: int = 1_000_000) -> None:
         self._asset_cache: Optional[AssetCache] = None
-        self._class_cache: Optional[ClassCache] = None
         self._max_cache_age = 3600  # 1 hour in seconds
         self._max_size = max_size
 
@@ -43,15 +34,24 @@ class AssetCacheManager:
         if len(assets) > self._max_size:
             raise ValueError(f"Cache size exceeded: {len(assets)} > {self._max_size}")
             
+        # Merge with existing assets instead of replacing
+        current_assets = {}
+        if self._asset_cache:
+            current_assets.update(self._asset_cache.assets)
+        
+        # Update with new assets
+        current_assets.update(assets)
+            
         # Create asset cache with indexes
         categories: Dict[str, Set[str]] = {}
         extension_index: Dict[str, Set[str]] = {}
         
-        for path, asset in assets.items():
+        for path, asset in current_assets.items():
             # Group by source/category
-            if asset.source not in categories:
-                categories[asset.source] = set()
-            categories[asset.source].add(path)
+            source = asset.source
+            if source not in categories:
+                categories[source] = set()
+            categories[source].add(path)
             
             # Group by extension
             ext = asset.path.suffix.lower()
@@ -60,8 +60,8 @@ class AssetCacheManager:
             extension_index[ext].add(path)
 
         self._asset_cache = AssetCache(
-            assets=assets,
-            paths_lower={k.lower(): k for k in assets.keys()},
+            assets=current_assets,
+            paths_lower={k.lower(): k for k in current_assets.keys()},
             categories={k: frozenset(v) for k, v in categories.items()},
             extension_index={k: frozenset(v) for k, v in extension_index.items()},
             last_updated=datetime.now()

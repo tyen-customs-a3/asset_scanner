@@ -18,6 +18,8 @@ PBO_FILES: Dict[str, PboFileData] = {
         'prefix': 'tc/mirrorform',
         'source': 'tc_mirrorform',
         'expected': {
+            "config.bin",
+            "texHeaders.bin",
             "logo.paa",
             "logo_small.paa",
             "uniform/mirror.p3d",
@@ -30,6 +32,8 @@ PBO_FILES: Dict[str, PboFileData] = {
         'prefix': 'tc/rhs_headband',
         'source': 'tc_rhs_headband',
         'expected': {
+            "config.bin",
+            "texHeaders.bin",
             "data/tex/headband_choccymilk_co.paa",
             "logo.paa",
             "logo_small.paa"
@@ -40,6 +44,12 @@ PBO_FILES: Dict[str, PboFileData] = {
         'prefix': 'babe/babe_em',
         'source': 'em',
         'expected': {
+            'c_anm_EM/config.bin',
+            'c_gst/config.bin',
+            'c_ui/config.bin',
+            'config.bin',
+            'func/config.bin',
+            'texHeaders.bin',
             'models/helper.p3d',
             'data/nope_ca.paa',
             'textures/EM_ca.paa',

@@ -11,7 +11,7 @@ from asset_scanner.types.progress_callback import ProgressCallbackType
 class BaseScanner(ABC):
     """Base class for asset scanners"""
 
-    ASSET_EXTENSIONS = {'.p3d', '.paa', '.rtm', '.jpg', '.jpeg', '.png', '.tga', '.wrp', '.pac', '.lip'}
+    ASSET_EXTENSIONS = {'.p3d', '.paa', '.rtm', '.jpg', '.jpeg', '.png', '.tga', '.wrp', '.pac', '.lip', '.rvmat', '.bin' }
 
     def __init__(
         self,
@@ -158,6 +158,9 @@ class BaseScanner(ABC):
                 self.task_manager.complete_task(task.path, "No valid assets found in PBO", failed=True)
                 return None
 
+            # Filter out .pbo files from assets list
+            asset_paths = {p for p in asset_paths if not str(p).lower().endswith('.pbo')}
+
             assets = set()
             current_time = datetime.now()
 
@@ -168,9 +171,12 @@ class BaseScanner(ABC):
                     if prefix and path_str.startswith(prefix):
                         path_str = path_str[len(prefix)+1:].strip('/')
 
+                    # Normalize source to strip @ prefix
+                    source = task.source.lstrip('@')
+
                     assets.add(Asset(
                         path=Path(path_str),
-                        source=task.source,
+                        source=source,
                         last_scan=current_time,
                         has_prefix=bool(prefix),
                         pbo_path=task.path.relative_to(task.path.parent.parent)
@@ -197,18 +203,35 @@ class BaseScanner(ABC):
             self.task_manager.complete_task(task.path, "File not found", failed=True)
             return None
 
-        clean_path = f"{task.source}/addons/{task.path.name}".replace('\\', '/')
+        # Find mod root by source name
+        mod_root = None
+        for parent in task.path.parents:
+            if parent.name == task.source:  # Look for exact match
+                mod_root = parent
+                break
+                
+        if mod_root:
+            rel_path = task.path.relative_to(mod_root)
+        else:
+            rel_path = task.path.relative_to(task.path.parent.parent)
+            
+
+        clean_path = str(rel_path).replace('\\', '/')
 
         asset = Asset(
             path=Path(clean_path),
-            source=task.source,
+            source=task.source,  # Preserve exact source name
             last_scan=datetime.now(),
             has_prefix=False,
             pbo_path=None
         )
 
         self.task_manager.complete_task(task.path)
-        return ScanResult(assets={asset}, scan_time=datetime.now())
+        return ScanResult(
+            assets={asset}, 
+            scan_time=datetime.now(),
+            source=task.source
+        )
 
     def _find_pbos(self, path: Path) -> List[Path]:
         """Find all PBO files in directory recursively"""

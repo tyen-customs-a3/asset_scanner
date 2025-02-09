@@ -95,14 +95,11 @@ class RegularFileScannerEngine(ScannerEngine):
         source = source.strip('@')
 
         try:
-            if 'addons' in str(file_path).lower():
-                rel_path = file_path.relative_to(file_path.parent.parent.parent)
-            else:
-                rel_path = file_path.relative_to(file_path.parent.parent)
+            rel_path = file_path.relative_to(file_path.parent.parent)
         except ValueError:
             rel_path = Path(file_path.name)
 
-        clean_path = f"{source}/addons/{str(rel_path)}".replace('\\', '/')
+        clean_path = f"{source}/{str(rel_path)}".replace('\\', '/')
 
         asset = Asset(
             path=Path(clean_path),
