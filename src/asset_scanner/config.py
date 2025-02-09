@@ -1,5 +1,6 @@
 from typing import Optional, Callable
-from asset_scanner.types.progress_callback import ProgressCallbackType
+
+from asset_scanner.progress_callback import ProgressCallbackType
 
 class APIConfig:
     def __init__(

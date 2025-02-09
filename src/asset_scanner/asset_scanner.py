@@ -8,9 +8,9 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 
-from .asset_models import Asset, ScanResult
 from .pbo_extractor import PboExtractor
-from .scanner_engine import ScannerEngine, PBOScannerEngine, RegularFileScannerEngine
+from .scanner_engine import PBOScannerEngine, RegularFileScannerEngine, ScannerEngine
+
 
 logger = logging.getLogger(__name__)
 

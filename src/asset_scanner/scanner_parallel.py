@@ -4,8 +4,9 @@ from typing import Any, List, Set, Dict, Optional, Tuple
 from datetime import datetime
 import logging
 
-from .asset_models import ScanResult, Asset
-from .scanner_tasks import ScanTask, TaskManager, TaskStatus, TaskPriority
+from .asset_models import Asset, ScanResult
+from .scanner_tasks import ScanTask, TaskManager, TaskStatus
+
 
 class ParallelScanner:
     """Unified scanner implementation"""

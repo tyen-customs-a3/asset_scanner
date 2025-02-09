@@ -3,9 +3,10 @@ from pathlib import Path
 from typing import List, Optional, Set, Callable, Dict, Tuple, Any
 from datetime import datetime
 import logging
-from .asset_models import ScanResult, Asset
-from .scanner_tasks import TaskManager, ScanTask, TaskPriority
-from asset_scanner.types.progress_callback import ProgressCallbackType
+
+from .asset_models import Asset, ScanResult
+from .progress_callback import ProgressCallbackType
+from .scanner_tasks import ScanTask, TaskManager, TaskPriority
 
 
 class BaseScanner(ABC):

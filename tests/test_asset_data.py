@@ -2,8 +2,8 @@ import pytest
 import logging
 from pathlib import Path
 from pytest import LogCaptureFixture
+
 from asset_scanner import AssetAPI
-from asset_scanner.pbo_extractor import PboExtractor
 from .conftest import PBO_FILES, MIRRORFORM_PBO_FILE
 
 logger = logging.getLogger(__name__)

@@ -2,9 +2,9 @@ from math import log
 from venv import logger
 import pytest
 from pathlib import Path
-from asset_scanner.scanner_parallel import ParallelScanner
-from asset_scanner.scanner_tasks import TaskPriority, TaskStatus, ScanTask
 from asset_scanner.pbo_extractor import PboExtractor
+from asset_scanner.scanner_parallel import ParallelScanner
+from asset_scanner.scanner_tasks import ScanTask, TaskPriority, TaskStatus
 from tests.conftest import BABE_EM_PBO_FILE, EM_BABE_EXPECTED, HEADBAND_EXPECTED, HEADBAND_PBO_FILE, MIRROR_EXPECTED, MIRRORFORM_PBO_FILE, PBO_FILES
 
 

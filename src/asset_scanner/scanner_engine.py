@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Callable, Set, Dict, Optional, List, Tuple
 from datetime import datetime
 
-from asset_scanner.pbo_extractor import PboExtractor
 from .asset_models import Asset, ScanResult
+from .pbo_extractor import PboExtractor
 
 
 class ScannerEngine(abc.ABC):

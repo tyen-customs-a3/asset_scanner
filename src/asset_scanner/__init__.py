@@ -1,13 +1,16 @@
+"""Main module for asset scanner package."""
+
 from .asset_models import Asset, ScanResult
 from .api import AssetAPI
-from .asset_scanner import AssetScanner
 from .config import APIConfig
+from .scanner_parallel import ParallelScanner
+from .pbo_extractor import PboExtractor
 
-__version__ = "0.1.0"
 __all__ = [
     'Asset',
-    'ScanResult', 
-    'AssetScanner',
+    'ScanResult',
     'AssetAPI',
     'APIConfig',
+    'ParallelScanner',
+    'PboExtractor'
 ]

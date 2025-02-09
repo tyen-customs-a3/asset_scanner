@@ -1,47 +1,22 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
-build-backend = "setuptools.build_meta"
-
-[tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-ra -q --cov=src"
-testpaths = [
-    "tests"
-]
-pythonpath = [
-    "src"
-]
-
-[tool.coverage.run]
-source = ["src"]
-branch = true
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if __name__ == .__main__.:"
-]
-
-[tool.setuptools_scm]
-write_to = "src/asset_scanner/_version.py"
-version_scheme = "semver"
-local_scheme = "node-and-date"
-
-[tool.setuptools]
-package-dir = {"" = "src"}
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "asset_scanner"
-description = "A simple asset scanner for Arma 3 modding projects"
+version = "0.1.0"
+description = "Asset scanner for game mods"
+authors = [{name = "Your Name"}]
+readme = "README.md"
 requires-python = ">=3.8"
 dynamic = ["version"]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=6.2.2",
-    "pytest-cov",
-    "setuptools>=45",
-    "wheel",
-    "setuptools_scm>=6.2"
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["asset_scanner"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src",
 ]
+testpaths = ["tests"]

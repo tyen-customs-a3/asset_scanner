@@ -6,14 +6,11 @@ from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from asset_scanner.config import APIConfig
-from asset_scanner.pbo_extractor import PboExtractor
-
 from .asset_models import Asset, ScanResult
-from .asset_scanner import AssetScanner
 from .cache import AssetCacheManager
+from .config import APIConfig
+from .pbo_extractor import PboExtractor
 from .scanner_parallel import ParallelScanner
-
 
 class AssetAPI:
     """Simplified main API"""

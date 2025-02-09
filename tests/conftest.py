@@ -257,3 +257,11 @@ def mock_class_parser() -> Mock:
     
     parser.parse_code.side_effect = mock_parse_code
     return parser
+
+import pytest
+from pathlib import Path
+
+@pytest.fixture
+def test_data_dir() -> Path:
+    """Return the test data directory."""
+    return Path(__file__).parent / "test_data"

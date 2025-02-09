@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from pathlib import Path
 from datetime import datetime
+
 from .asset_models import Asset
 
 @dataclass(frozen=True)

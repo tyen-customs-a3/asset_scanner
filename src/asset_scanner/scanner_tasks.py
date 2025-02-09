@@ -5,7 +5,8 @@ from datetime import datetime
 from enum import Enum, auto
 import threading
 
-from .config import APIConfig  # Updated import
+from asset_scanner.config import APIConfig
+
 
 class TaskPriority(Enum):
     HIGH = auto()    # Config files and core PBOs
@@ -121,5 +122,4 @@ class TaskManager:
             for task in self.tasks.values():
                 stats[task.status] += 1
             return stats
-            
-# ...existing code...
+          
