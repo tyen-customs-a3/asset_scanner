@@ -39,23 +39,52 @@ class AssetAPI:
             source = root_path.name
             paths_to_scan = self._get_scannable_paths(root_path)
             
-            # Get existing assets
-            existing_assets = self._cache.get_assets_by_source(source)
+            # Get existing assets, but separate current source assets
+            existing_assets = {
+                str(a.path): a for a in self._cache.get_all_assets()
+                if a.source != source  # Only keep assets from other sources
+            }
+            
+            self._logger.debug(f"Preserved {len(existing_assets)} existing assets from other sources")
+            self._logger.debug(f"Existing asset sources: {set(a.source for a in existing_assets.values())}")
             
             # Perform scan
             scan_results = self._scanner.scan_directories(paths_to_scan, source)
             
-            # Merge results
-            all_assets = {str(a.path): a for a in existing_assets}
+            # Add new assets while preserving existing ones from other sources
+            all_assets = dict(existing_assets)  # Start with existing assets from other sources
+            
+            # Add newly scanned assets
+            new_asset_count = 0
             for result in scan_results:
                 for asset in result.assets:
-                    all_assets[str(asset.path)] = asset
+                    asset_key = str(asset.path)
+                    # Only update if from current source or not present
+                    if asset_key not in all_assets:
+                        all_assets[asset_key] = asset
+                        new_asset_count += 1
+                    elif all_assets[asset_key].source != asset.source:
+                        self._logger.warning(
+                            f"Asset collision: {asset_key} from {asset.source} "
+                            f"conflicts with existing from {all_assets[asset_key].source}"
+                        )
             
-            # Update cache
+            self._logger.debug(f"Added {new_asset_count} new assets from {source}")
+            
+            # Update cache with complete set
+            self._logger.debug(f"Updating cache with {len(all_assets)} total assets")
             self._cache.add_assets(all_assets)
             
+            # Return only new/updated assets for this source
+            current_assets = {
+                asset for asset in all_assets.values() 
+                if asset.source == source
+            }
+            
+            self._logger.debug(f"Returning {len(current_assets)} assets for source {source}")
+            
             return ScanResult(
-                assets=set(all_assets.values()),
+                assets=current_assets,
                 scan_time=datetime.now(),
                 source=source,
                 path=root_path

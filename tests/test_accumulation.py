@@ -52,24 +52,29 @@ def test_strict_accumulation(complex_structure: Path, tmp_path: Path) -> None:
         # Store expected assets for this mod
         mod_name = mod_dir.name
         expected_assets[mod_name] = {
-            str(asset.path) for asset in result.assets
+            str(asset.path): asset for asset in result.assets
         }
         
         # Verify all previously scanned assets are still present
         cached = api.get_all_assets()
         
-        logger.debug(f"Scanned {mod_name}, found {len(result.assets)} assets")
+        logger.debug(f"Total cached assets after scanning {mod_name}: {len(cached)}")
+        logger.debug(f"Asset sources in cache: {set(a.source for a in cached)}")
         
         cached_paths = {str(asset.path) for asset in cached}
         
-        for prev_mod, prev_paths in expected_assets.items():
-            for path in prev_paths:
+        for prev_mod, prev_assets in expected_assets.items():
+            for path, expected_asset in prev_assets.items():
                 assert path in cached_paths, f"Lost asset {path} from {prev_mod}"
                 cached_asset = next(a for a in cached if str(a.path) == path)
-                assert cached_asset.source == mod_dir.name, f"Wrong source for {path}"
+                assert cached_asset.source == expected_asset.source, (
+                    f"Wrong source for {path}: expected {expected_asset.source}, "
+                    f"got {cached_asset.source}"
+                )
+                logger.debug(f"Verified {path} from {cached_asset.source}")
 
 
-def test_path_resolution(complex_structure, tmp_path):
+def test_path_resolution(complex_structure: Path, tmp_path: Path) -> None:
     """Test asset resolution with different path formats"""
     api = AssetAPI(tmp_path / "cache")
     api.scan(complex_structure)
@@ -88,7 +93,7 @@ def test_path_resolution(complex_structure, tmp_path):
         assert "rifle.p3d" in str(asset.path), f"Wrong asset found for {path}"
 
 
-def test_incremental_updates(complex_structure, tmp_path):
+def test_incremental_updates(complex_structure: Path, tmp_path: Path) -> None:
     """Test scanning with file modifications"""
     api = AssetAPI(tmp_path / "cache")
     

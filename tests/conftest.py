@@ -11,7 +11,7 @@ class PboFileData(TypedDict):
     expected: Set[str]
 
 # Test Data Constants
-SAMPLE_DATA_ROOT = Path(__file__).parent.parent / "sample_data"
+SAMPLE_DATA_ROOT = Path(__file__).parent.parent / "tests/test_data"
 PBO_FILES: Dict[str, PboFileData] = {
     'mirror': {
         'path': SAMPLE_DATA_ROOT / '@tc_mirrorform/addons/mirrorform.pbo',

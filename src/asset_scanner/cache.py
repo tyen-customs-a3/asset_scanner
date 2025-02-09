@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Set, Optional, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -28,20 +29,52 @@ class AssetCacheManager:
         self._asset_cache: Optional[AssetCache] = None
         self._max_cache_age = 3600  # 1 hour in seconds
         self._max_size = max_size
+        self._logger = logging.getLogger(__name__)
 
     def add_assets(self, assets: Dict[str, Asset]) -> None:
         """Bulk add or update assets in cache."""
         if len(assets) > self._max_size:
             raise ValueError(f"Cache size exceeded: {len(assets)} > {self._max_size}")
             
-        # Merge with existing assets instead of replacing
+        # Start with clean dictionaries
         current_assets = {}
         if self._asset_cache:
-            current_assets.update(self._asset_cache.assets)
+            # Preserve existing assets from different sources
+            current_assets = {
+                path: asset for path, asset in self._asset_cache.assets.items()
+            }
+            self._logger.debug(f"Starting cache update with {len(current_assets)} existing assets")
+            
+        # Log initial state
+        source_counts = {}
+        for asset in current_assets.values():
+            source_counts[asset.source] = source_counts.get(asset.source, 0) + 1
+        self._logger.debug(f"Current cache source distribution: {source_counts}")
         
         # Update with new assets
-        current_assets.update(assets)
-            
+        updates = 0
+        skips = 0
+        conflicts = 0
+        for path, asset in assets.items():
+            if path not in current_assets:
+                current_assets[path] = asset
+                updates += 1
+            elif current_assets[path].source == asset.source:
+                current_assets[path] = asset
+                updates += 1
+            else:
+                self._logger.debug(
+                    f"Preserving existing asset {path} from {current_assets[path].source} "
+                    f"(skipping update from {asset.source})"
+                )
+                conflicts += 1
+                skips += 1
+                
+        self._logger.debug(
+            f"Cache update stats - Updates: {updates}, Skips: {skips}, "
+            f"Conflicts: {conflicts}, Final size: {len(current_assets)}"
+        )
+        
         # Create asset cache with indexes
         categories: Dict[str, Set[str]] = {}
         extension_index: Dict[str, Set[str]] = {}

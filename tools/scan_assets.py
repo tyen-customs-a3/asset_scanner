@@ -2,14 +2,22 @@ import argparse
 import logging
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Set, DefaultDict
+from collections import defaultdict
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from asset_scanner.api import AssetAPI
 from asset_scanner.config import APIConfig
+from modules.report import print_summary, save_report
+
+
+#
+# Configuration & Setup
+#
 
 @dataclass
 class ScannerConfig:
@@ -20,6 +28,7 @@ class ScannerConfig:
     cache_size: int = 1_000_000
     verbose: bool = False
     report_formats: List[str] = field(default_factory=lambda: ["rich", "json", "text"])
+
 
 def parse_arguments() -> ScannerConfig:
     """Parse command line arguments"""
@@ -62,7 +71,7 @@ def parse_arguments() -> ScannerConfig:
         action="store_true",
         help="Enable verbose output"
     )
-    
+
     args = parser.parse_args()
     return ScannerConfig(
         input_paths=args.input_paths,
@@ -73,29 +82,35 @@ def parse_arguments() -> ScannerConfig:
         report_formats=args.format
     )
 
+
 def setup_logging(output_dir: Path, verbose: bool) -> tuple[logging.Logger, Console]:
     """Setup logging and console output"""
     console = Console()
-    
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     log_level = logging.DEBUG if verbose else logging.INFO
     logger = logging.getLogger("asset_scanner")
     logger.setLevel(log_level)
-    
+
     file_handler = logging.FileHandler(output_dir / "scan.log")
     file_handler.setFormatter(
         logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     )
     logger.addHandler(file_handler)
-    
+
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(
         logging.Formatter('%(levelname)s: %(message)s')
     )
     logger.addHandler(console_handler)
-    
+
     return logger, console
+
+
+#
+# Progress & Display
+#
 
 def create_progress() -> Progress:
     """Create Rich progress display"""
@@ -107,160 +122,114 @@ def create_progress() -> Progress:
         console=Console()
     )
 
+
+#
+# Scanning Logic
+#
+
 def scan_directories(
-    config: ScannerConfig, 
+    config: ScannerConfig,
     logger: logging.Logger
-) -> Optional[dict]:
+) -> Optional[Dict[str, Any]]:
     """Perform asset scanning using AssetAPI"""
     try:
-        # Normalize input paths
         input_paths = [p.resolve() for p in config.input_paths]
-        
+
         api_config = APIConfig(
             cache_max_size=config.cache_size,
             max_workers=config.workers
         )
         api = AssetAPI(config.output_dir, api_config)
-        
+
         with create_progress() as progress:
             scan_task = progress.add_task(
                 "[cyan]Scanning directories...",
                 total=len(input_paths)
             )
-            
+
             all_results = []
             total_pbos = 0
-            total_classes = 0 
             total_assets = 0
-            all_classes = []
-            
+
             for path in input_paths:
                 logger.info(f"Scanning directory: {path}")
-                results = api.parallel_scan_directories([path], path.name)
-                
-                if not results:
+                result = api.scan(path)
+
+                if not result or not result.assets:
                     logger.warning(f"No results found in {path}")
                     progress.advance(scan_task)
                     continue
-                    
-                # Store complete results for this directory
-                folder_assets = []
-                folder_pbos = []
-                folder_loose = []
-                folder_classes = []
-                
-                for r in results:
-                    if hasattr(r, 'pbo_path'):
-                        total_pbos += 1
-                        folder_pbos.append(r)
+
+                # Group assets by PBO
+                pbo_contents: DefaultDict[str, List[str]] = defaultdict(list)
+                loose_files: List[str] = []
+
+                for asset in result.assets:
+                    if hasattr(asset, 'pbo_path') and asset.pbo_path:
+                        pbo_key = str(asset.pbo_path)
+                        pbo_contents[pbo_key].append(str(asset.path))
                     else:
-                        folder_loose.append(r)
-                        
-                    folder_assets.extend(r.assets)
-                    total_assets += len(r.assets)
-                    
-                    # Handle class data with proper type checking
-                    if hasattr(r, 'classes') and r.classes:
-                        for class_name, class_data in r.classes.items():
-                            try:
-                                class_info = {
-                                    "name": class_name,
-                                    "source": str(r.source),
-                                    "parent": None,  # Default value
-                                    "properties": {}  # Default empty dict
-                                }
+                        loose_files.append(str(asset.path))
 
-                                # Handle different class_data types
-                                if hasattr(class_data, 'parent'):
-                                    class_info["parent"] = class_data.parent
-                                elif isinstance(class_data, dict):
-                                    class_info["parent"] = class_data.get('parent')
-                                elif isinstance(class_data, (set, frozenset)):
-                                    # Handle set case - no parent info
-                                    pass
-
-                                # Handle properties similarly
-                                if hasattr(class_data, 'properties'):
-                                    props = class_data.properties
-                                elif isinstance(class_data, dict):
-                                    props = class_data.get('properties', {})
-                                else:
-                                    props = {}
-
-                                # Convert properties
-                                class_info["properties"] = {
-                                    name: getattr(prop, 'value', prop)
-                                    for name, prop in props.items()
-                                }
-
-                                folder_classes.append(class_info)
-                                total_classes += 1
-                            except Exception as e:
-                                logger.debug(f"Skipping class {class_name}: {e}")
-                                continue
-                
-                # Add folder results with accurate counts
-                folder_results = {
+                folder_results: Dict[str, Any] = {
                     "path": str(path),
-                    "pbos": [str(p.pbo_path) for p in folder_pbos],
-                    "loose_files": [str(f.path) for f in folder_loose],
-                    "total_assets": len(folder_assets),
-                    "total_classes": len(folder_classes),
-                    "classes": folder_classes
+                    "source": result.source,
+                    "scan_time": result.scan_time.isoformat() if result.scan_time else None,
+                    "pbos": [{
+                        "path": pbo_path,
+                        "contents": sorted(contents)
+                    } for pbo_path, contents in pbo_contents.items()],
+                    "loose_files": sorted(loose_files),
+                    "total_assets": len(result.assets)
                 }
+
+                total_pbos += len(pbo_contents)
+                total_assets += len(result.assets)
+
                 all_results.append(folder_results)
                 progress.advance(scan_task)
-            
+
             if not all_results:
                 logger.error("No valid results found in any directory")
                 return None
-                
+
             results = {
                 "folders": all_results,
                 "summary": {
                     "total_directories": len(input_paths),
                     "total_assets": total_assets,
                     "total_pbos": total_pbos,
-                    "total_classes": total_classes,
-                    "total_loose_files": len([r for r in all_results if not r["pbos"]])
+                    "total_loose_files": sum(len(r["loose_files"]) for r in all_results)
                 }
             }
-            
+
             return results
-            
+
     except Exception as e:
         logger.error(f"Scanning failed: {e}", exc_info=True)
         return None
+
+
+#
+# Main Program Flow
+#
 
 def main() -> int:
     """Main entry point"""
     try:
         config = parse_arguments()
-        
-        # Validate output directory 
-        try:
-            config.output_dir.mkdir(parents=True, exist_ok=True)
-            if not config.output_dir.is_dir():
-                raise ValueError(f"Output path exists but is not a directory: {config.output_dir}")
-        except Exception as e:
-            print(f"Error creating output directory: {e}")
-            return 1
-            
         logger, console = setup_logging(config.output_dir, config.verbose)
-        
+
         invalid_paths = [p for p in config.input_paths if not p.exists()]
         if invalid_paths:
             logger.error(f"Invalid input paths: {invalid_paths}")
             return 1
-            
+
         results = scan_directories(config, logger)
         if not results:
             return 1
-            
-        from modules.report import print_summary, save_report
-        
+
         with create_progress() as progress:
-            # Rich console output
             if "rich" in config.report_formats:
                 report_task = progress.add_task(
                     "[green]Generating console report...",
@@ -268,8 +237,7 @@ def main() -> int:
                 )
                 print_summary(results, console)
                 progress.advance(report_task)
-            
-            # File reports
+
             formats = [f for f in config.report_formats if f != "rich"]
             if formats:
                 report_task = progress.add_task(
@@ -279,16 +247,17 @@ def main() -> int:
                 for fmt in formats:
                     save_report(results, config.output_dir, logger, formats=[fmt])
                     progress.advance(report_task)
-            
+
         logger.info(f"Scan completed successfully. Results saved to {config.output_dir}")
         return 0
-        
+
     except KeyboardInterrupt:
         print("\nScan interrupted by user")
         return 1
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
