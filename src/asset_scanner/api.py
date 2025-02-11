@@ -7,7 +7,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from .models import Asset, ScanResult
-from .cache import AssetCacheManager
+from .cache import AssetCache
 from .config import APIConfig
 from .pbo_extractor import PboExtractor
 from .scanner_parallel import ParallelScanner
@@ -15,9 +15,9 @@ from .scanner_parallel import ParallelScanner
 class AssetAPI:
     """Simplified main API"""
     
-    def __init__(self, cache_dir: Path, config: Optional[APIConfig] = None):
+    def __init__(self, config: Optional[APIConfig] = None):
         self.config = config or APIConfig()
-        self._cache = AssetCacheManager(max_size=self.config.cache_max_size)
+        self._cache = AssetCache(max_cache_size=self.config.max_cache_size)
         self._logger = logging.getLogger(__name__)
         self._stats_lock = threading.Lock()
         self._pbo_extractor = PboExtractor()
@@ -215,7 +215,7 @@ class AssetAPI:
         self._logger.error(f"Error in {context}: {error}")
 
     def clear_cache(self) -> None:
-        self._cache = AssetCacheManager(max_size=self.config.cache_max_size)
+        self._cache = AssetCache(max_cache_size=self.config.max_cache_size)
 
     def cleanup(self) -> None:
         print ("Cleanup")
@@ -223,7 +223,7 @@ class AssetAPI:
     def shutdown(self) -> None:
         try:
             self.cleanup()
-            self._cache = AssetCacheManager(self.config.cache_max_size)
+            self._cache = AssetCache(self.config.max_cache_size)
             self._logger.info("AssetAPI shutdown complete")
         except Exception as e:
             self._handle_error(e, "shutdown")

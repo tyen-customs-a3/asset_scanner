@@ -28,8 +28,8 @@ A high-performance asset scanner for game content with multi-threaded processing
 from asset_scanner import AssetAPI
 from pathlib import Path
 
-# Initialize API with cache directory
-api = AssetAPI(Path("cache"))
+# Initialize API
+api = AssetAPI()
 
 # Scan a directory
 result = api.scan(Path("@mod"))

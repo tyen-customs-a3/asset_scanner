@@ -38,7 +38,7 @@ def complex_structure(tmp_path: Path) -> Path:
 
 def test_strict_accumulation(complex_structure: Path, tmp_path: Path) -> None:
     """Test strict accumulation of assets across multiple scans"""
-    api = AssetAPI(tmp_path / "cache")
+    api = AssetAPI()
 
     # Track what we expect to find
     expected_assets = {}
@@ -76,7 +76,7 @@ def test_strict_accumulation(complex_structure: Path, tmp_path: Path) -> None:
 
 def test_path_resolution(complex_structure: Path, tmp_path: Path) -> None:
     """Test asset resolution with different path formats"""
-    api = AssetAPI(tmp_path / "cache")
+    api = AssetAPI()
     api.scan(complex_structure)
 
     # Test various path formats for the same asset
@@ -95,7 +95,7 @@ def test_path_resolution(complex_structure: Path, tmp_path: Path) -> None:
 
 def test_incremental_updates(complex_structure: Path, tmp_path: Path) -> None:
     """Test scanning with file modifications"""
-    api = AssetAPI(tmp_path / "cache")
+    api = AssetAPI()
     
     # Initial scan
     api.scan(complex_structure)

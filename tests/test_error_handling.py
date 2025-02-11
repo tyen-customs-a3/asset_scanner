@@ -7,15 +7,13 @@ from asset_scanner.config import APIConfig
 
 
 @pytest.fixture
-def api(tmp_path: Path) -> AssetAPI:
+def api() -> AssetAPI:
     """Create API instance for testing"""
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-    return AssetAPI(cache_dir)
+    return AssetAPI()
 
 
 @pytest.fixture
-def edge_case_structure(tmp_path) -> Path:
+def edge_case_structure(tmp_path: Path) -> Path:
     """Create error-triggering file structure"""
     base = tmp_path / "error_test"
     base.mkdir()
@@ -30,7 +28,7 @@ def test_error_handler() -> None:
     """Test error handler configuration"""
     error_handler = Mock()
     config = APIConfig(error_handler=error_handler)
-    api = AssetAPI(Path("test"), config=config)
+    api = AssetAPI(config=config)
 
     try:
         api.scan(Path("nonexistent"))

@@ -116,10 +116,10 @@ def scan_directories(
         input_paths = [p.resolve() for p in config.input_paths]
 
         api_config = APIConfig(
-            cache_max_size=config.cache_size,
+            max_cache_size=config.cache_size,
             max_workers=config.workers
         )
-        api = AssetAPI(config.output_dir, api_config)
+        api = AssetAPI(api_config)
 
         all_results = []
         total_pbos = 0

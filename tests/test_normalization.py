@@ -46,7 +46,7 @@ def test_pbo_path_normalization() -> None:
 
 def test_api_path_handling(tmp_path) -> None:
     """Test API handles different path formats consistently"""
-    api = AssetAPI(tmp_path / "cache")
+    api = AssetAPI()
     
     # Create test structure
     mod_dir = tmp_path / "test_mod"

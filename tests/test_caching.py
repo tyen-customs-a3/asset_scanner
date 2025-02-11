@@ -1,12 +1,15 @@
-"""Cache management and persistence tests"""
+"""Cache management and in-memory cache tests"""
 import pytest
 from pathlib import Path
+from datetime import datetime, timedelta
+import time
 from asset_scanner import AssetAPI
 from asset_scanner.config import APIConfig
+from asset_scanner.models import Asset
 
 
 @pytest.fixture
-def mod_structure(tmp_path) -> Path:
+def mod_structure(tmp_path: Path) -> Path:
     base = tmp_path / "mods"
     base.mkdir()
 
@@ -37,53 +40,79 @@ def mod_structure(tmp_path) -> Path:
     return base
 
 
-def test_cache_persistence(mod_structure: Path, tmp_path: Path) -> None:
-    """Test cache persists between scans"""
-    api = AssetAPI(tmp_path / "cache")
+def test_cache_memory_storage(mod_structure: Path, tmp_path: Path) -> None:
+    """Test in-memory cache storage"""
+    api = AssetAPI()
     
     result1 = api.scan(mod_structure)
     assets1 = {str(a.path) for a in result1.assets}
     
-    result2 = api.scan(mod_structure)
-    assets2 = {str(a.path) for a in result2.assets}
-    
-    assert assets1 == assets2, "Cached assets should match between scans"
+    # Create new API instance (should have empty cache)
+    api2 = AssetAPI()
+    assert len(api2.get_all_assets()) == 0, "New API instance should have empty cache"
 
-
-def test_cache_invalidation(mod_structure: Path, tmp_path: Path) -> None:
-    """Test cache updates when files change"""
-    api = AssetAPI(tmp_path / "cache")
-    
+def test_cache_max_age(mod_structure: Path) -> None:
+    """Test cache invalidation by age"""
+    api = AssetAPI()
     result = api.scan(mod_structure)
-    initial_count = len(result.assets)
     
-    # Modify a file
-    test_file = next(mod_structure.rglob("*.p3d"))
-    test_file.write_text("modified content")
+    # Force cache to be old by modifying last_updated
+    api._cache._last_updated = datetime.now() - timedelta(hours=2)
+    
+    assert not api._cache.is_valid(), "Cache should be invalid after max age"
+
+def test_cache_update(mod_structure: Path) -> None:
+    """Test cache updates when adding new assets"""
+    api = AssetAPI()
+    
+    # Initial scan
+    result1 = api.scan(mod_structure)
+    initial_count = len(result1.assets)
+    
+    # Add new file
+    new_file = mod_structure / "@mod1" / "addons" / "new_asset.paa"
+    new_file.parent.mkdir(exist_ok=True)
+    new_file.write_text("new content")
     
     # Rescan
-    new_result = api.scan(mod_structure)
-    assert len(new_result.assets) == initial_count, "Asset count should remain same"
+    result2 = api.scan(mod_structure)
+    assert len(result2.assets) == initial_count + 1, "Cache should include new asset"
 
-
-def test_cache_size_limits(mod_structure: Path, tmp_path: Path) -> None:
-    """Test cache size enforcement"""
-    config = APIConfig(cache_max_size=2)
-    api = AssetAPI(tmp_path / "cache", config=config)
-
-    with pytest.raises(ValueError, match=r"Cache size exceeded"):
-        api.scan(mod_structure)
-
-
-def test_cache_clearing(mod_structure: Path, tmp_path: Path) -> None:
-    """Test cache clearing operations"""
-    api = AssetAPI(tmp_path / "cache")
+def test_cache_source_isolation(mod_structure: Path) -> None:
+    """Test that assets from different sources don't interfere"""
+    api = AssetAPI()
     
-    result = api.scan(mod_structure)
-    assert len(result.assets) > 0
+    # Scan first mod
+    mod1_path = mod_structure / "@mod1"
+    result1 = api.scan(mod1_path)
+    mod1_assets = len(result1.assets)
+    
+    # Scan second mod
+    mod2_path = mod_structure / "@mod2"
+    result2 = api.scan(mod2_path)
+    
+    # Check that assets from both mods are preserved
+    assert len(api.get_assets_by_source("@mod1")) == mod1_assets
+    assert len(api.get_assets_by_source("@mod2")) > 0
+
+def test_cache_clear(mod_structure: Path) -> None:
+    """Test cache clearing"""
+    api = AssetAPI()
+    
+    api.scan(mod_structure)
+    assert len(api.get_all_assets()) > 0
     
     api.clear_cache()
     assert len(api.get_all_assets()) == 0
     
-    api.shutdown()
-    assert len(api.get_all_assets()) == 0
+    # Verify new scans work after clearing
+    result = api.scan(mod_structure)
+    assert len(result.assets) > 0
+
+def test_cache_size_limit(mod_structure: Path) -> None:
+    """Test cache size limits"""
+    small_cache_size = 2
+    api = AssetAPI(config=APIConfig(max_cache_size=small_cache_size))
+    
+    with pytest.raises(ValueError, match="Cache size exceeded"):
+        api.scan(mod_structure)

@@ -38,10 +38,8 @@ def sample_assets(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def api(tmp_path: Path) -> AssetAPI:
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-    return AssetAPI(cache_dir)
+def api() -> AssetAPI:
+    return AssetAPI()
 
 
 def test_basic_scanning(api: AssetAPI, sample_assets: Path) -> None:
@@ -56,7 +54,7 @@ def test_error_handling(api: AssetAPI) -> None:
     """Test error handler configuration"""
     error_handler = Mock()
     config = APIConfig(error_handler=error_handler)
-    api = AssetAPI(Path("test"), config=config)
+    api = AssetAPI(config=config)
 
     with pytest.raises(FileNotFoundError):
         api.scan(Path("nonexistent"))

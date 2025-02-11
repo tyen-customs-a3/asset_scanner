@@ -4,11 +4,9 @@ from pathlib import Path
 from asset_scanner import AssetAPI, Asset
 
 @pytest.fixture
-def api(tmp_path: Path) -> AssetAPI:
+def api() -> AssetAPI:
     """Create API instance for testing"""
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-    return AssetAPI(cache_dir)
+    return AssetAPI()
 
 @pytest.fixture
 def sample_assets(tmp_path: Path) -> Path:

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def test_scanning_all_addons(sample_data_path: Path, tmp_path: Path) -> None:
     """Test scanning all sample addons together"""
-    api = AssetAPI(tmp_path / "cache")
+    api = AssetAPI()
     result = api.scan(sample_data_path)
     
     assert result.assets, "Should find assets"
@@ -24,7 +24,7 @@ def test_scanning_all_addons(sample_data_path: Path, tmp_path: Path) -> None:
 
 def test_asset_patterns(sample_data_path: Path, tmp_path: Path) -> None:
     """Test pattern-based asset filtering"""
-    api = AssetAPI(tmp_path / "cache")
+    api = AssetAPI()
     api.scan(sample_data_path)
 
     models = api.find_by_extension('.p3d')
