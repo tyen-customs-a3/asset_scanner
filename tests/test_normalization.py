@@ -2,7 +2,7 @@ from pathlib import Path
 from asset_scanner import Asset, AssetAPI
 from datetime import datetime
 
-def test_asset_path_normalization():
+def test_asset_path_normalization() -> None:
     """Test that Asset enforces path normalization"""
     paths = [
         r"test\path\file.paa",
@@ -22,7 +22,7 @@ def test_asset_path_normalization():
         )
         assert asset.normalized_path == expected
 
-def test_source_normalization():
+def test_source_normalization() -> None:
     """Test that @ prefix is stripped from source"""
     sources = ["test", "@test", "@@test"]
     
@@ -34,7 +34,7 @@ def test_source_normalization():
         )
         assert asset.source == "test"
 
-def test_pbo_path_normalization():
+def test_pbo_path_normalization() -> None:
     """Test PBO path normalization"""
     asset = Asset(
         path=Path("test.paa"),
@@ -44,7 +44,7 @@ def test_pbo_path_normalization():
     )
     assert str(asset.pbo_path).replace('\\', '/') == "test/addon.pbo"
 
-def test_api_path_handling(tmp_path):
+def test_api_path_handling(tmp_path) -> None:
     """Test API handles different path formats consistently"""
     api = AssetAPI(tmp_path / "cache")
     

@@ -10,7 +10,7 @@ def mod_structure(tmp_path) -> Path:
     base = tmp_path / "mods"
     base.mkdir()
 
-    mods = {
+    mods: dict[str, list[str]] = {
         "@mod1": [
             "addons/weapon1.p3d",
             "addons/texture1.paa",

@@ -5,7 +5,7 @@ from types import MappingProxyType
 from pathlib import Path
 from datetime import datetime
 
-from .asset_models import Asset
+from .models import Asset
 
 @dataclass(frozen=True)
 class AssetCache:

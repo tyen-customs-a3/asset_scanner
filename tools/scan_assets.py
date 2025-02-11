@@ -7,9 +7,6 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Set, DefaultDict
 from collections import defaultdict
 
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-
 from asset_scanner.api import AssetAPI
 from asset_scanner.config import APIConfig
 from modules.report import print_summary, save_report
@@ -27,7 +24,7 @@ class ScannerConfig:
     workers: int = 60
     cache_size: int = 1_000_000
     verbose: bool = False
-    report_formats: List[str] = field(default_factory=lambda: ["rich", "json", "text"])
+    report_formats: List[str] = field(default_factory=lambda: ["text", "json"])
 
 
 def parse_arguments() -> ScannerConfig:
@@ -62,8 +59,8 @@ def parse_arguments() -> ScannerConfig:
     parser.add_argument(
         "--format",
         nargs="+",
-        choices=["rich", "json", "text"],
-        default=["rich", "json", "text"],
+        choices=["json", "text"],
+        default=["json", "text"],
         help="Report output formats (default: all)"
     )
     parser.add_argument(
@@ -83,10 +80,8 @@ def parse_arguments() -> ScannerConfig:
     )
 
 
-def setup_logging(output_dir: Path, verbose: bool) -> tuple[logging.Logger, Console]:
-    """Setup logging and console output"""
-    console = Console()
-
+def setup_logging(output_dir: Path, verbose: bool) -> logging.Logger:
+    """Setup logging"""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     log_level = logging.DEBUG if verbose else logging.INFO
@@ -105,22 +100,7 @@ def setup_logging(output_dir: Path, verbose: bool) -> tuple[logging.Logger, Cons
     )
     logger.addHandler(console_handler)
 
-    return logger, console
-
-
-#
-# Progress & Display
-#
-
-def create_progress() -> Progress:
-    """Create Rich progress display"""
-    return Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        console=Console()
-    )
+    return logger
 
 
 #
@@ -141,69 +121,61 @@ def scan_directories(
         )
         api = AssetAPI(config.output_dir, api_config)
 
-        with create_progress() as progress:
-            scan_task = progress.add_task(
-                "[cyan]Scanning directories...",
-                total=len(input_paths)
-            )
+        all_results = []
+        total_pbos = 0
+        total_assets = 0
 
-            all_results = []
-            total_pbos = 0
-            total_assets = 0
+        for i, path in enumerate(input_paths, 1):
+            logger.info(f"Scanning directory {i}/{len(input_paths)}: {path}")
+            result = api.scan(path)
 
-            for path in input_paths:
-                logger.info(f"Scanning directory: {path}")
-                result = api.scan(path)
+            if not result or not result.assets:
+                logger.warning(f"No results found in {path}")
+                continue
 
-                if not result or not result.assets:
-                    logger.warning(f"No results found in {path}")
-                    progress.advance(scan_task)
-                    continue
+            # Group assets by PBO
+            pbo_contents: DefaultDict[str, List[str]] = defaultdict(list)
+            loose_files: List[str] = []
 
-                # Group assets by PBO
-                pbo_contents: DefaultDict[str, List[str]] = defaultdict(list)
-                loose_files: List[str] = []
+            for asset in result.assets:
+                if hasattr(asset, 'pbo_path') and asset.pbo_path:
+                    pbo_key = str(asset.pbo_path)
+                    pbo_contents[pbo_key].append(str(asset.path))
+                else:
+                    loose_files.append(str(asset.path))
 
-                for asset in result.assets:
-                    if hasattr(asset, 'pbo_path') and asset.pbo_path:
-                        pbo_key = str(asset.pbo_path)
-                        pbo_contents[pbo_key].append(str(asset.path))
-                    else:
-                        loose_files.append(str(asset.path))
-
-                folder_results: Dict[str, Any] = {
-                    "path": str(path),
-                    "source": result.source,
-                    "scan_time": result.scan_time.isoformat() if result.scan_time else None,
-                    "pbos": [{
-                        "path": pbo_path,
-                        "contents": sorted(contents)
-                    } for pbo_path, contents in pbo_contents.items()],
-                    "loose_files": sorted(loose_files),
-                    "total_assets": len(result.assets)
-                }
-
-                total_pbos += len(pbo_contents)
-                total_assets += len(result.assets)
-
-                all_results.append(folder_results)
-                progress.advance(scan_task)
-
-            if not all_results:
-                logger.error("No valid results found in any directory")
-                return None
-
-            results = {
-                "folders": all_results,
-                "summary": {
-                    "total_directories": len(input_paths),
-                    "total_assets": total_assets,
-                    "total_pbos": total_pbos,
-                    "total_loose_files": sum(len(r["loose_files"]) for r in all_results)
-                }
+            folder_results: Dict[str, Any] = {
+                "path": str(path),
+                "source": result.source,
+                "scan_time": result.scan_time.isoformat() if result.scan_time else None,
+                "pbos": [{
+                    "path": pbo_path,
+                    "contents": sorted(contents)
+                } for pbo_path, contents in pbo_contents.items()],
+                "loose_files": sorted(loose_files),
+                "total_assets": len(result.assets)
             }
 
-            return results
+            total_pbos += len(pbo_contents)
+            total_assets += len(result.assets)
+
+            all_results.append(folder_results)
+
+        if not all_results:
+            logger.error("No valid results found in any directory")
+            return None
+
+        results = {
+            "folders": all_results,
+            "summary": {
+                "total_directories": len(input_paths),
+                "total_assets": total_assets,
+                "total_pbos": total_pbos,
+                "total_loose_files": sum(len(r["loose_files"]) for r in all_results)
+            }
+        }
+
+        return results
 
     except Exception as e:
         logger.error(f"Scanning failed: {e}", exc_info=True)
@@ -218,7 +190,7 @@ def main() -> int:
     """Main entry point"""
     try:
         config = parse_arguments()
-        logger, console = setup_logging(config.output_dir, config.verbose)
+        logger = setup_logging(config.output_dir, config.verbose)
 
         invalid_paths = [p for p in config.input_paths if not p.exists()]
         if invalid_paths:
@@ -229,24 +201,13 @@ def main() -> int:
         if not results:
             return 1
 
-        with create_progress() as progress:
-            if "rich" in config.report_formats:
-                report_task = progress.add_task(
-                    "[green]Generating console report...",
-                    total=1
-                )
-                print_summary(results, console)
-                progress.advance(report_task)
+        if "text" in config.report_formats:
+            print_summary(results)
 
-            formats = [f for f in config.report_formats if f != "rich"]
-            if formats:
-                report_task = progress.add_task(
-                    "[green]Saving report files...",
-                    total=len(formats)
-                )
-                for fmt in formats:
-                    save_report(results, config.output_dir, logger, formats=[fmt])
-                    progress.advance(report_task)
+        formats = [f for f in config.report_formats]
+        if formats:
+            logger.info("Saving report files...")
+            save_report(results, config.output_dir, logger, formats=formats)
 
         logger.info(f"Scan completed successfully. Results saved to {config.output_dir}")
         return 0

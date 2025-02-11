@@ -47,3 +47,4 @@ Thumbs.db
 config_analysis.txt
 /results/
 /.mypy_cache/
+/scan_results/

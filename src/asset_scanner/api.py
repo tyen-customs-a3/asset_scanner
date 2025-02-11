@@ -6,7 +6,7 @@ from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from .asset_models import Asset, ScanResult
+from .models import Asset, ScanResult
 from .cache import AssetCacheManager
 from .config import APIConfig
 from .pbo_extractor import PboExtractor

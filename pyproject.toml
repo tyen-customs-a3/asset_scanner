@@ -8,8 +8,9 @@ version = "0.1.0"
 description = "Asset scanner for game mods"
 authors = [{name = "Your Name"}]
 readme = "README.md"
-requires-python = ">=3.8"
-dynamic = ["version"]
+requires-python = ">=3.9"
+dependencies = ["pytest==8.3.4"]
+dynamic = []
 
 [tool.setuptools]
 package-dir = {"" = "src"}

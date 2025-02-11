@@ -5,9 +5,6 @@ from typing import Dict, Any, List, Optional, DefaultDict
 from collections import defaultdict
 import json
 import logging
-from rich.console import Console
-from rich.table import Table
-from rich.tree import Tree
 
 
 #
@@ -110,7 +107,7 @@ def save_json_report(report: Dict[str, Any], output_dir: Path) -> Path:
         json.dump(serializable_report, f, indent=2)
     return output_file
 
-def save_report(report: Dict[str, Any], output_dir: Path, logger: logging.Logger, formats: List[str] = ["rich", "json", "text"]) -> None:
+def save_report(report: Dict[str, Any], output_dir: Path, logger: logging.Logger, formats: List[str] = ["json", "text"]) -> None:
     """Save report in specified formats"""
     try:
         saved_files = []
@@ -137,26 +134,21 @@ def save_report(report: Dict[str, Any], output_dir: Path, logger: logging.Logger
 # Display & Visualization
 #
 
-def print_summary(report: Dict[str, Any], console: Console) -> None:
-    """Print enhanced summary of parallel scan results"""
-    summary = Table(title="Scan Summary")
-    summary.add_column("Metric", style="cyan")
-    summary.add_column("Count", justify="right", style="green")
-    summary.add_column("Details", style="dim")
+def print_summary(report: Dict[str, Any]) -> None:
+    """Print plain text summary of scan results"""
+    print("\nScan Summary")
+    print("============")
     
-    # Add core metrics with details
     for key, value in report["summary"].items():
         if key == "total_pbos":
-            summary.add_row("PBO Files", str(value), 
-                          f"Contains {report['summary']['total_assets']} assets")
+            print(f"PBO Files: {value} (Contains {report['summary']['total_assets']} assets)")
         elif key != "scan_time":
-            summary.add_row(key.replace('_', ' ').title(), str(value), "")
-    
-    console.print(summary)
+            print(f"{key.replace('_', ' ').title()}: {value}")
+    print()
 
-def generate_asset_tree(results: List[Dict[str, Any]], console: Console) -> None:
+def generate_asset_tree(results: List[Dict[str, Any]]) -> None:
     """Generate hierarchical tree view of assets"""
-    root = Tree("📁 Asset Hierarchy")
+    print("📁 Asset Hierarchy")
     
     # Type annotations for dictionaries
     addon_groups: DefaultDict[str, List[AssetResult]] = defaultdict(list)
@@ -164,7 +156,7 @@ def generate_asset_tree(results: List[Dict[str, Any]], console: Console) -> None
     
     for result in results:
         source_name = result.get("source", "unknown")
-        source_tree = root.add(f"[blue]{source_name}")
+        print(f"[blue]{source_name}")
         
         # Group by addon folders
         for asset in result.get("assets", []):
@@ -179,7 +171,7 @@ def generate_asset_tree(results: List[Dict[str, Any]], console: Console) -> None
         
         # Add addon folders and their PBOs
         for addon, assets in addon_groups.items():
-            addon_tree = source_tree.add(f"[cyan]{addon}")
+            print(f"[cyan]{addon}")
             
             # Group by PBO
             for asset in assets:
@@ -188,14 +180,12 @@ def generate_asset_tree(results: List[Dict[str, Any]], console: Console) -> None
             
             # Add PBOs and their assets
             for pbo, pbo_assets in pbo_groups.items():
-                pbo_tree = addon_tree.add(f"[green]{pbo}")
+                print(f"[green]{pbo}")
                 for asset in pbo_assets:
-                    pbo_tree.add(f"[yellow]{asset.path.name}")
+                    print(f"[yellow]{asset.path.name}")
             
             # Clear PBO groups for next addon
             pbo_groups.clear()
         
         # Clear addon groups for next source
         addon_groups.clear()
-    
-    console.print(root)

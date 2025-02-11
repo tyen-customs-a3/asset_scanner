@@ -5,7 +5,7 @@ from asset_scanner.progress_callback import ProgressCallbackType
 class APIConfig:
     def __init__(
         self,
-        cache_max_size: int = 100000,
+        cache_max_size: int = 10000000,
         max_workers: int = 4,
         pbo_limit: Optional[int] = None,
         progress_callback: Optional[ProgressCallbackType] = None,

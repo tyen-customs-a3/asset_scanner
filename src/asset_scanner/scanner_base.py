@@ -4,7 +4,7 @@ from typing import List, Optional, Set, Callable, Dict, Tuple, Any
 from datetime import datetime
 import logging
 
-from .asset_models import Asset, ScanResult
+from .models import Asset, ScanResult
 from .progress_callback import ProgressCallbackType
 from .scanner_tasks import ScanTask, TaskManager, TaskPriority
 
