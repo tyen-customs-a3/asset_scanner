@@ -13,21 +13,75 @@ from .pbo_extractor import PboExtractor
 from .scanner_parallel import ParallelScanner
 
 class AssetAPI:
-    """Simplified main API"""
+    """Main API for asset scanning and caching"""
     
     def __init__(self, config: Optional[APIConfig] = None):
+        self._logger = logging.getLogger(__name__)  # Initialize logger first
         self.config = config or APIConfig()
-        self._cache = AssetCache(max_cache_size=self.config.max_cache_size)
-        self._logger = logging.getLogger(__name__)
         self._stats_lock = threading.Lock()
         self._pbo_extractor = PboExtractor()
+        self._cache = AssetCache(max_cache_size=self.config.max_cache_size)
+        
+        if self.config.cache_file:
+            self.load_cache()
+
         self._scanner = ParallelScanner(
             self._pbo_extractor,
             max_workers=self.config.max_workers
         )
 
+    @property
+    def cache_file(self) -> Optional[Path]:
+        """Get configured cache file path"""
+        return self.config.cache_file
+
+    def save_cache(self, path: Optional[Path] = None) -> None:
+        """Manually save cache to disk"""
+        save_path = path or self.config.cache_file
+        if not save_path:
+            self._logger.warning("No cache file configured for save operation")
+            return
+        try:
+            self._cache.save_to_disk(save_path)
+        except Exception as e:
+            self._handle_error(e, "manual cache save failed")
+
+    def load_cache(self) -> bool:
+        """Load cache from configured file"""
+        if not self.config.cache_file:
+            self._logger.warning("No cache file configured for load operation")
+            return False
+
+        try:
+            loaded_cache = AssetCache.load_from_disk(self.config.cache_file)
+            assets = loaded_cache.get_all_assets()
+            if not assets:
+                self._logger.warning(f"No assets found in cache file {self.config.cache_file}")
+                return False
+                
+            # Transfer assets to current cache
+            self._cache.add_assets({str(a.path): a for a in assets})
+            self._logger.debug(f"Loaded {len(assets)} assets from {self.config.cache_file}")
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"Failed to load cache: {e}")
+            return False
+
+    def clear_cache(self) -> None:
+        """Clear the cache without auto-saving"""
+        self._cache.clear()
+
+    def is_cache_valid(self) -> bool:
+        """Check if cache is still valid"""
+        return self._cache.is_valid()
+
+    def _save_cache(self) -> None:
+        """Save cache to disk if configured"""
+        self.save_cache(self.config.cache_file)
+
     def scan(self, root_path: Path, patterns: Optional[List[Pattern]] = None) -> ScanResult:
-        """Simplified scanning method"""
+        """Scan for assets without auto-saving"""
         try:
             if not root_path.exists():
                 raise FileNotFoundError(f"Directory not found: {root_path}")
@@ -213,9 +267,6 @@ class AssetAPI:
                 return
 
         self._logger.error(f"Error in {context}: {error}")
-
-    def clear_cache(self) -> None:
-        self._cache = AssetCache(max_cache_size=self.config.max_cache_size)
 
     def cleanup(self) -> None:
         print ("Cleanup")

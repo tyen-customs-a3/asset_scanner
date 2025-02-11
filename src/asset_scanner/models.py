@@ -1,4 +1,5 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Set, Optional
@@ -29,6 +30,27 @@ class Asset:
     @property 
     def filename(self) -> str:
         return self.path.name
+
+    def to_dict(self) -> dict:
+        """Convert asset to dictionary for serialization"""
+        return {
+            'path': str(self.path),
+            'source': self.source,
+            'last_scan': self.last_scan.isoformat(),
+            'has_prefix': self.has_prefix,
+            'pbo_path': str(self.pbo_path) if self.pbo_path else None
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Asset':
+        """Create asset from dictionary"""
+        return cls(
+            path=Path(data['path']),
+            source=data['source'],
+            last_scan=datetime.fromisoformat(data['last_scan']),
+            has_prefix=data['has_prefix'],
+            pbo_path=Path(data['pbo_path']) if data['pbo_path'] else None
+        )
 
 @dataclass(frozen=True)
 class ScanResult:
