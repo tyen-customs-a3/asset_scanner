@@ -279,10 +279,6 @@ class AssetScanner:
         """Internal PBO scanning implementation"""
         return self.scan_pbo(pbo_path)[0].assets
 
-    def read_pbo_code(self, pbo_path: Path) -> Dict[str, str]:
-        """Extract and read code files from PBO"""
-        return self.pbo_extractor.extract_code_files(pbo_path, self.CODE_EXTENSIONS)
-
     def _scan_file(self, file_path: Path) -> Optional[ScanResult]:
         """Scan a single file using appropriate engine"""
         for engine in self.engines:

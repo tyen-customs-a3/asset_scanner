@@ -197,62 +197,6 @@ class PboExtractor:
         )
         return None
 
-    def extract_code_files(self, pbo_path: Path, extensions: Set[str]) -> Dict[str, str]:
-        """Extract and read code files from PBO with thread safety"""
-        operation_id = str(uuid.uuid4())
-        try:
-            temp_dir = self._get_temp_dir(operation_id) / pbo_path.stem
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            
-            logger.debug(f"Extracting from {pbo_path}")
-
-            mod_name = next(
-                (part for part in pbo_path.parts if part.startswith('@')),
-                None
-            )
-            if mod_name:
-                mod_name = mod_name.strip('@')
-
-            file_filter = ','.join([f'*{ext}' for ext in extensions] + ['*.bin'])
-            logger.debug(f"Using filter: {file_filter}")
-            
-            returncode, stdout, stderr = self.extract_files(pbo_path, temp_dir, file_filter)
-            if returncode != 0:
-                logger.error(f"Extract failed: {stderr}")
-                return {}
-
-            bin_files = list(temp_dir.rglob('*.bin'))
-            logger.debug(f"Found {len(bin_files)} .bin files")
-            
-            for bin_file in bin_files:
-                try:
-                    if new_name := self._detect_bin_type(bin_file.name):
-                        new_path = bin_file.with_name(new_name)
-                        logger.debug(f"Converting {bin_file.name} -> {new_path.name}")
-                        bin_file.replace(new_path)
-                except Exception as e:
-                    logger.error(f"Bin conversion failed for {bin_file}: {e}")
-
-            code_files: Dict[str, str] = {}
-            for ext in ['.cpp', '.hpp']:
-                for file_path in temp_dir.rglob(f'*{ext}'):
-                    try:
-                        relative_path = str(file_path.relative_to(temp_dir))
-                        if content := self._read_file_with_fallback(file_path):
-                            logger.debug(f"Read {relative_path} ({len(content)} bytes)")
-                            code_files[relative_path] = content
-                    except Exception as e:
-                        logger.error(f"Failed to read {file_path}: {e}")
-
-            logger.debug(f"Final code files: {list(code_files.keys())}")
-            return code_files
-
-        except Exception as e:
-            logger.error(f"Code extraction failed: {e}")
-            return {}
-        finally:
-            self._cleanup_temp_dir(operation_id)
-
     def _normalize_pbo_path(self, path: str, prefix: Optional[str] = None) -> str:
         """Normalize PBO path to consistent format with prefix"""
         clean_path = path.strip().replace('\\', '/').strip('/')
@@ -305,10 +249,6 @@ class PboExtractor:
                 if clean_path:
                     all_paths.add(clean_path)
                 
-                if any(line.endswith(ext) for ext in self.CODE_EXTENSIONS) or line.endswith('.bin'):
-                    if not code_files:
-                        code_files = self.extract_code_files(pbo_path, self.CODE_EXTENSIONS)
-
             logger.debug(f"\nScan Results for {pbo_path.name}:")
             logger.debug(f"  Prefix: {prefix}")
             logger.debug(f"  Total paths found: {len(all_paths)}")

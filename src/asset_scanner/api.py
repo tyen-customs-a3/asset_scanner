@@ -12,19 +12,16 @@ from .config import APIConfig
 from .pbo_extractor import PboExtractor
 from .scanner_parallel import ParallelScanner
 
+
 class AssetAPI:
     """Main API for asset scanning and caching"""
-    
+
     def __init__(self, config: Optional[APIConfig] = None):
-        self._logger = logging.getLogger(__name__)  # Initialize logger first
+        self._logger = logging.getLogger(__name__)
         self.config = config or APIConfig()
         self._stats_lock = threading.Lock()
         self._pbo_extractor = PboExtractor()
         self._cache = AssetCache(max_cache_size=self.config.max_cache_size)
-        
-        if self.config.cache_file:
-            self.load_cache()
-
         self._scanner = ParallelScanner(
             self._pbo_extractor,
             max_workers=self.config.max_workers
@@ -58,12 +55,11 @@ class AssetAPI:
             if not assets:
                 self._logger.warning(f"No assets found in cache file {self.config.cache_file}")
                 return False
-                
-            # Transfer assets to current cache
+
             self._cache.add_assets({str(a.path): a for a in assets})
             self._logger.debug(f"Loaded {len(assets)} assets from {self.config.cache_file}")
             return True
-            
+
         except Exception as e:
             self._logger.error(f"Failed to load cache: {e}")
             return False
@@ -89,28 +85,23 @@ class AssetAPI:
             self._logger.info(f"Starting scan of {root_path}")
             source = root_path.name
             paths_to_scan = self._get_scannable_paths(root_path)
-            
-            # Get existing assets, but separate current source assets
+
             existing_assets = {
                 str(a.path): a for a in self._cache.get_all_assets()
-                if a.source != source  # Only keep assets from other sources
+                if a.source != source
             }
-            
+
             self._logger.debug(f"Preserved {len(existing_assets)} existing assets from other sources")
             self._logger.debug(f"Existing asset sources: {set(a.source for a in existing_assets.values())}")
-            
-            # Perform scan
+
             scan_results = self._scanner.scan_directories(paths_to_scan, source)
-            
-            # Add new assets while preserving existing ones from other sources
-            all_assets = dict(existing_assets)  # Start with existing assets from other sources
-            
-            # Add newly scanned assets
+
+            all_assets = dict(existing_assets)
+
             new_asset_count = 0
             for result in scan_results:
                 for asset in result.assets:
                     asset_key = str(asset.path)
-                    # Only update if from current source or not present
                     if asset_key not in all_assets:
                         all_assets[asset_key] = asset
                         new_asset_count += 1
@@ -119,21 +110,19 @@ class AssetAPI:
                             f"Asset collision: {asset_key} from {asset.source} "
                             f"conflicts with existing from {all_assets[asset_key].source}"
                         )
-            
+
             self._logger.debug(f"Added {new_asset_count} new assets from {source}")
-            
-            # Update cache with complete set
+
             self._logger.debug(f"Updating cache with {len(all_assets)} total assets")
             self._cache.add_assets(all_assets)
-            
-            # Return only new/updated assets for this source
+
             current_assets = {
-                asset for asset in all_assets.values() 
+                asset for asset in all_assets.values()
                 if asset.source == source
             }
-            
+
             self._logger.debug(f"Returning {len(current_assets)} assets for source {source}")
-            
+
             return ScanResult(
                 assets=current_assets,
                 scan_time=datetime.now(),
@@ -152,16 +141,15 @@ class AssetAPI:
     def _get_scannable_paths(self, root: Path) -> List[Path]:
         """Get all paths that should be scanned under root."""
         paths = []
-        
-        # Always include root for regular files
+
         paths.append(root)
-            
+
         return paths
 
-    def _scan_parallel(self, paths: List[Path], source: str, 
-                      patterns: Optional[List[Pattern]] = None) -> List[ScanResult]:
+    def _scan_parallel(self, paths: List[Path], source: str,
+                       patterns: Optional[List[Pattern]] = None) -> List[ScanResult]:
         """Perform parallel scanning of directories."""
-        self._logger.debug(f"Starting parallel scan of {len(paths)} directories")
+        self._logger.debug(f"Starting parallel scan of {len(paths)} directories for assets from {source}")
 
         try:
             scanner = ParallelScanner(
@@ -175,7 +163,6 @@ class AssetAPI:
             self._handle_error(e, "parallel scan failed")
             raise
 
-    # Keep asset query methods public
     def get_asset(self, path: str | Path, case_sensitive: bool = False) -> Optional[Asset]:
         if isinstance(path, Path):
             path = str(path)
@@ -213,7 +200,6 @@ class AssetAPI:
             source = f"@{source}"
         return self._cache.get_assets_by_source(source)
 
-    # Keep asset finding methods public
     def find_by_extension(self, extension: str) -> Set[Asset]:
         if not extension.startswith('.'):
             extension = f'.{extension}'
@@ -257,7 +243,6 @@ class AssetAPI:
 
         return assets
 
-    # Make cache management private
     def _handle_error(self, error: Exception, context: str = "") -> None:
         if self.config and self.config.error_handler:
             try:
@@ -269,7 +254,7 @@ class AssetAPI:
         self._logger.error(f"Error in {context}: {error}")
 
     def cleanup(self) -> None:
-        print ("Cleanup")
+        print("Cleanup")
 
     def shutdown(self) -> None:
         try:

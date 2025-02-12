@@ -22,6 +22,11 @@ class Asset:
             object.__setattr__(self, 'pbo_path', Path(normalized))
         if not self.source:
             raise ValueError("Source cannot be empty")
+            
+        # Normalize source by stripping @ prefix
+        normalized_source = self.source.lstrip('@')
+        if normalized_source != self.source:
+            object.__setattr__(self, 'source', normalized_source)
 
     @property
     def normalized_path(self) -> str:
@@ -30,6 +35,11 @@ class Asset:
     @property 
     def filename(self) -> str:
         return self.path.name
+
+    @staticmethod
+    def normalize_source(source: str) -> str:
+        """Remove @ prefix from source name"""
+        return source.lstrip('@')
 
     def to_dict(self) -> dict:
         """Convert asset to dictionary for serialization"""
