@@ -3,7 +3,6 @@ from pathlib import Path
 from asset_scanner import Asset, AssetAPI
 from unittest.mock import Mock
 from asset_scanner.config import APIConfig
-import time
 from datetime import datetime, timedelta
 
 from tests.conftest import PBO_FILES
@@ -80,10 +79,10 @@ def test_asset_querying(api: AssetAPI, sample_assets: Path) -> None:
 
 def test_cache_persistence(api: AssetAPI, sample_assets: Path) -> None:
     """Test that cache persists between scans"""
-    result1 = api.scan(sample_assets)
+    api.scan(sample_assets)
     assets1 = api.get_all_assets()
     
-    result2 = api.scan(sample_assets)
+    api.scan(sample_assets)
     assets2 = api.get_all_assets()
 
     assert len(assets1) == len(assets2)
@@ -105,7 +104,7 @@ def test_cleanup(api: AssetAPI, sample_assets: Path) -> None:
 
 def test_criteria_search(api: AssetAPI, sample_assets: Path) -> None:
     """Test finding assets by multiple criteria"""
-    result = api.scan(sample_assets)
+    api.scan(sample_assets)
     print("\nDebug - All scanned assets:")
     for asset in sorted(api.get_all_assets(), key=lambda x: str(x.path)):
         print(f"  {asset.source}: {asset.path}")
@@ -224,7 +223,7 @@ def test_api_cache_source_isolation(api: AssetAPI, sample_assets: Path) -> None:
     
     # Then scan the headband mod
     headband_mod_dir = sample_assets / "@tc_rhs_headband"
-    headband_result = api.scan(headband_mod_dir)
+    api.scan(headband_mod_dir)
     headband_assets = api.get_assets_by_source("tc_rhs_headband")
     assert len(headband_assets) > 0, "Should find headband assets"
     

@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional, Set, Pattern
 from pathlib import Path
 from datetime import datetime
 import threading
-from concurrent.futures import ThreadPoolExecutor
 
 from .models import Asset, ScanResult
 from .cache import AssetCache
@@ -83,48 +82,49 @@ class AssetAPI:
                 raise FileNotFoundError(f"Directory not found: {root_path}")
 
             self._logger.info(f"Starting scan of {root_path}")
-            source = root_path.name
+            source = root_path.name.lstrip('@')  # Normalize source name
             paths_to_scan = self._get_scannable_paths(root_path)
 
-            existing_assets = {
+            # Keep track of existing assets from other sources
+            other_source_assets = {
                 str(a.path): a for a in self._cache.get_all_assets()
-                if a.source != source
+                if Asset.normalize_source(a.source) != source
             }
 
-            self._logger.debug(f"Preserved {len(existing_assets)} existing assets from other sources")
-            self._logger.debug(f"Existing asset sources: {set(a.source for a in existing_assets.values())}")
+            self._logger.debug(f"Preserved {len(other_source_assets)} existing assets from other sources")
+            self._logger.debug(f"Existing asset sources: {set(a.source for a in other_source_assets.values())}")
 
+            # Scan for new assets 
             scan_results = self._scanner.scan_directories(paths_to_scan, source)
 
-            all_assets = dict(existing_assets)
-
-            new_asset_count = 0
+            # Collect all new assets from this scan, ensuring proper source prefixing
+            new_assets = set()
             for result in scan_results:
                 for asset in result.assets:
-                    asset_key = str(asset.path)
-                    if asset_key not in all_assets:
-                        all_assets[asset_key] = asset
-                        new_asset_count += 1
-                    elif all_assets[asset_key].source != asset.source:
-                        self._logger.warning(
-                            f"Asset collision: {asset_key} from {asset.source} "
-                            f"conflicts with existing from {all_assets[asset_key].source}"
-                        )
+                    # Ensure asset paths are properly prefixed with source
+                    asset_path = str(asset.path)
+                    if not asset_path.startswith(f"{source}/"):
+                        asset_path = f"{source}/{asset_path}"
+                    new_assets.add(Asset(
+                        path=Path(asset_path),
+                        source=source,
+                        last_scan=asset.last_scan,
+                        has_prefix=asset.has_prefix,
+                        pbo_path=asset.pbo_path
+                    ))
 
-            self._logger.debug(f"Added {new_asset_count} new assets from {source}")
+            self._logger.debug(f"Added {len(new_assets)} new assets from {source}")
+
+            # Update cache with both existing and new assets
+            all_assets = dict(other_source_assets)
+            for asset in new_assets:
+                all_assets[str(asset.path)] = asset
 
             self._logger.debug(f"Updating cache with {len(all_assets)} total assets")
             self._cache.add_assets(all_assets)
 
-            current_assets = {
-                asset for asset in all_assets.values()
-                if asset.source == source
-            }
-
-            self._logger.debug(f"Returning {len(current_assets)} assets for source {source}")
-
             return ScanResult(
-                assets=current_assets,
+                assets=new_assets,
                 scan_time=datetime.now(),
                 source=source,
                 path=root_path
